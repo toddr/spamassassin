@@ -1,0 +1,535 @@
+# SpamAssassin rules file: broken rules
+#
+# This file isn't installed with SpamAssassin. Rules which appear broken
+# but might be worth another try are moved onto this pile. Normally every
+# line in this file should be commented out.
+#
+# See the file "License" in the top level of the SpamAssassin distribution
+# for usage terms.
+#
+###########################################################################
+#
+## these rules may need to factor in ok_languages or ok_locales
+## Dec 18 2002 jm: but how? ;)  They are ready to be promoted otherwise
+##freqs:  0.084   0.2047   0.0095    0.956   0.84    0.01  T_BODY_UNPRINTABLE
+#body T_BODY_UNPRINTABLE		/[\x00-\x07\x0b\x0c\x0e-\x1f\x7f]{3,}/
+#describe T_BODY_UNPRINTABLE	Body includes 3 consecutive unprintable characters
+#
+## Nov 12 2002 jm: not keen on this.  many ISPs do not provide rDNS these
+## days as policy. stupid policy, but there we are. and SpamAssassin policy
+## is not to punish users with stupid ISPs...
+##
+## Dec 20 2002 jm: should make fantastic meta-fodder though. ;)
+##
+##freqs: 11.817  22.1680   5.3554    0.805   0.53    0.01  T_SENDER_NO_REVERSE
+#header   T_SENDER_NO_REVERSE    eval:check_for_sender_no_reverse()
+#describe T_SENDER_NO_REVERSE    No reverse lookup for sender's IP
+
+# bug 1310: these four rules are pretty slow and not that great
+# they need to work better  before being added back into SA proper
+#body SALE			/\bsales? (?:price|system|department|technology|ends|today)|\b(?:on|summer|movie|clearance|for|your|increase|super|losing|return|business|airfare) (?-i:S)ales?/i
+#describe SALE			Stuff on Sale
+#body WINNER			/\byou.{0,4} a winner|\bregister to win/i
+#describe WINNER		Claims you are a winner
+#body MONTH_TRIAL		/(?:month|day) .{0,9}trial/i
+#describe MONTH_TRIAL		Month Trial Offer
+#body MEMBER_2			/\b(?:free|special|paid|dear|gold|opt.in|valued|because you are an?|be a|becoming a|sent to) .{0,9}members?\b/i
+#describe MEMBER_2		Being a Member
+
+# These were all removed for the 2.50 GA run.  Low scoring, etc.
+
+#body NAME_BRAND		        /\b(?:famous name|major) brand/i
+#describe NAME_BRAND		Name Brand
+#
+#body SIGN_UP			/\b(?:free sign up|sign up today)\b/i
+#describe SIGN_UP		Sign up Free Today
+#
+#body CANCEL		        /\bcancel at any time\b/i
+#describe CANCEL			Cancel at any time!
+#
+#body NO_COMBINE		        /\bwith any other offer/i
+#describe NO_COMBINE		Can not be combined with any other offer
+#
+#header X_SMTPEXP_REGISTRATION	exists:X-SMTPExp-Registration
+#header X_SMTPEXP_VERSION	exists:X-SMTPExp-Version
+#describe X_SMTPEXP_REGISTRATION	Message has X-SMTPExp-Registration header
+#describe X_SMTPEXP_VERSION	Message has X-SMTPExp-Version header
+#
+#body MEMBER			/\bmember (?:number|reward|value|benefit|rate|report|card|information)s?\b/i
+#describe MEMBER			Member Stuff
+#
+#header   EXCHANGE_SERVER        X-Mailer =~ /Internet Mail Service \([\d\.]+\)/
+#describe EXCHANGE_SERVER        Came via Internet Mail Service plugin
+#tflags EXCHANGE_SERVER		nice
+#
+#body     REG_THANKS             /\bThank you for registering\b/i
+#describe REG_THANKS             Something about registration
+#tflags   REG_THANKS             nice
+#
+#header SUBJ_ENDS_IN_SPACE	Subject =~ /(?:\s{6}|\t\s|\s\t)$/
+#describe SUBJ_ENDS_IN_SPACE	Subject ends with lots of white space
+#
+#header MSGID_CHARS_WEIRD	MESSAGEID =~ /["=\\~]/
+#describe MSGID_CHARS_WEIRD	Message-Id has characters often found in spam
+#
+#header ALL_CAPS_HEADER		ALL =~ /\n(?:TO|FROM|SUBJECT|DATE):/s
+#describe ALL_CAPS_HEADER	Header with all capitals found
+#
+#header MSG_ID_ADDED_BY_MTA	Message-Id =~ / \(added by (?!postmaster\@wanadoo\.fr)/
+#describe MSG_ID_ADDED_BY_MTA	'Message-Id' was added by a relay
+#
+#header FROM_MALFORMED           From !~ /(?:\"[^\"]+\"|\S+)\@\S+\.\S+|<\S+(?:\!\S+)+>/ [if-unset: unset@unset.unset]
+#describe FROM_MALFORMED         From: has a malformed address
+#
+#header SHORT_RECEIVED_LINE      Received =~ /\S{120,}/s
+#describe SHORT_RECEIVED_LINE    'Received:' contains huge hostname
+#
+#header YR_MEMBERSHIP_EXCH       Subject =~ /Your Membership Exchange/
+#describe YR_MEMBERSHIP_EXCH     Subject contains 'Your Membership Exchange'
+#
+#body PARA_A_2_C_OF_1618		/Paragraph *.a.{0,10}2.{0,10}C\. of S\. 1618/i
+#describe PARA_A_2_C_OF_1618	Claims compliance with Senate Bill 1618
+#
+#body CHECK_OR_MONEY_ORDER	/check or money order/i
+#describe CHECK_OR_MONEY_ORDER	Talk about a check or money order
+#
+#body DEAR_EMAIL			/\bDear [A-Za-z0-9_-]+\@/
+#describe DEAR_EMAIL		Dear you@you.com?
+#test DEAR_EMAIL ok Dear duncf@rogers.com,
+#test DEAR_EMAIL fail Dear Duncan!
+#
+## this one gets a few false positives
+#body SOCIAL_SEC_NUMBER		/social security (?:number|record)/i
+#describe SOCIAL_SEC_NUMBER	Talks about social security numbers
+#
+#body EXCUSE_5			/that your email address is removed/i
+#describe EXCUSE_5		Claims you can be removed from the list
+#
+#body INVESTOR_SPEC_SHEET	/Investor Spec Sheet/i
+#describe INVESTOR_SPEC_SHEET	Standard investment opportunity spam
+#
+## detect "mort$age", but not "mortgage"
+#body MORTGAGE_OBFU	        /mor[tga\$]*\$[ga\$]*e/i
+#describe MORTGAGE_OBFU 	        Attempt at obfuscating the word "mortgage"
+#test MORTGAGE_OBFU ok  Mort$a$e
+#test MORTGAGE_OBFU ok  Mor$gage
+#test MORTGAGE_OBFU ok  Mort$age
+#test MORTGAGE_OBFU ok  Mortga$e
+#test MORTGAGE_OBFU fail Mortsa$e
+#test MORTGAGE_OBFU fail Morlage
+#test MORTGAGE_OBFU fail mortgage
+#test MORTGAGE_OBFU fail mortgage$
+#test MORTGAGE_OBFU fail mortgage$
+#
+#body INTERNET_TERROR_RANT       /At the time of this mailing.{9,50}legitimate return email address.{100,299}internet terrorists/i
+#describe INTERNET_TERROR_RANT   Cyber FirePower! rant about losing dropboxes
+#
+## jm: use {2,3} to avoid matching iso-2022-jp charset items. split into US_DOLLARS_4
+#body US_DOLLARS_4               /\s(?:\$|US\$|usd?).?\d{1,3}\.\d+.?(?:m|millions?)\b/i
+#describe US_DOLLARS_4           Nigerian scam key phrase ($NNN.N m/USDNNN.N m/US$NN.N m)
+#test US_DOLLARS_4 fail JP charset test: this should not match: $1 $
+#test US_DOLLARS_4 fail JP charset test: this should not match: $1$
+#test US_DOLLARS_4 fail $-$NFbMF$K!"A49q$+$iLd$$9g$o$;$,;&E~$7$F$$$^$9!#
+#test US_DOLLARS_4 ok of US$8.5 million (Eight
+#test US_DOLLARS_4 ok of US8.5 millions (Eight
+#
+#body OFFER_EXPIRE	        /\boffer expires\b/i
+#describe OFFER_EXPIRE		Offer Expires
+#
+#body INVESTMENT		        /\binvestment decision/i
+#describe INVESTMENT		Investment Decision
+#
+#body COUPON		        /\boff coupon/i
+#describe COUPON			Offers Coupon
+#
+#body CANT_LIVE_WITHOUT	        /\bcan.{0,4} live without\b/i
+#describe CANT_LIVE_WITHOUT	Can't live without?
+#
+#body GETAWAY		        /\bweekend getaway/i
+#describe GETAWAY		Weekend Getaway
+#
+#body GIVING_AWAY	        /\bgiving away\b/i
+#describe GIVING_AWAY		They're just giving it away!
+#
+#body CYBER_FIRE_POWER           /\b(?:by|for) Cyber FirePower\!/
+#describe CYBER_FIRE_POWER       mentions Cyber FirePower!, a spam-tool
+#
+#body ANOTHER_NET_AD             /Another Internet Ad campaign produced/
+#describe ANOTHER_NET_AD         Tells you it's an ad
+#
+#body EU_200_32_CE               /Directive 200.32.CE/i
+#describe EU_200_32_CE           Claims compliance with European spam regulations
+#
+#body FILTERED_BY_WORLDREMOVE		/filtered by WorldRemove/
+#describe FILTERED_BY_WORLDREMOVE	Claims to listen to some removal request list
+#
+#body FREE_HOSTING               /\bfree hosting\b/i
+#describe FREE_HOSTING           Free Hosting
+#
+#body GREEN_EXCUSE_1             /using email instead can significantly reduce this/i
+#describe GREEN_EXCUSE_1         Claims spam helps the environment
+#
+#body GREEN_EXCUSE_2             /the trees, save the planet, use email!/i
+#describe GREEN_EXCUSE_2         Claims spam helps the environment
+#
+#body POPLAUNCH                  /StealthLaunch PopLaunch\b/
+#describe POPLAUNCH              spam software: PopLaunch
+#
+#body SIGNIFICANT                /\bsignificant savings\b/i
+#describe SIGNIFICANT            Significant Savings
+#
+#body SLASH_PRICE                /\bslash.{0,2} price/i
+#describe SLASH_PRICE            Slashed Price
+#
+#body THIS_AINT_JUNK             /This.{0,30}is not (?:a )?junk(?: email)?/is
+#describe THIS_AINT_JUNK         Claims "This is not junk email"
+#
+#body OUR_POLICY_ON_SELLING	/our policy on selling/i
+#describe OUR_POLICY_ON_SELLING	Mentions their policy on selling
+#
+#body BANG_CARTOONS    		/\bcartoons!/i
+#describe BANG_CARTOONS    	Talks about cartoons with an exclamation!
+#
+#body BANG_CYBERANALYSTS		/\bcyberanalysts!/i
+#describe BANG_CYBERANALYSTS	Talks about cyberanalysts with an exclamation!
+#
+#header RATWARE_V3161		ALL =~ /V3,1,6,1/
+#describe RATWARE_V3161		Bulk email software fingerprint (V3161) found in headers
+#
+#uri LONG_NUMERIC_HTTP_ADDR	/^https?\:\/\/000\d+/is
+#describe LONG_NUMERIC_HTTP_ADDR	Uses a long numeric IP address in URL
+#
+## one spamhaus uses servers numbered like this:
+#uri HTTP_NUMBER_WORD		/^https?:\/\/(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\./i
+#describe HTTP_NUMBER_WORD	URL contains spamhaus signature: numbered servers
+#
+#uri E_WEBHOSTCENTRAL_URL	/e-webhostcentral\.com/i
+#describe E_WEBHOSTCENTRAL_URL	Frequent SPAM content
+#
+#uri FREEMEGS_URL		/25freemegs\.com/i
+#describe FREEMEGS_URL		Frequent SPAM content   
+#
+#uri FREEWEBCO_NET_URL		/freewebco\.net/i
+#describe FREEWEBCO_NET_URL	Frequent SPAM content
+#
+#uri FREEWEBHOSTINGCENTRAL	/freewebhostingcentral/i   
+#describe FREEWEBHOSTINGCENTRAL	Frequent SPAM content  
+#
+#uri WEB4PORNO_URL		/web4porno\.com/i
+#describe WEB4PORNO_URL		Frequent SPAM content
+#
+#uri WWW_NETSITESFORFREE_NET		/netsitesforfree\.net/i
+#describe WWW_NETSITESFORFREE_NET	Frequent SPAM content
+#
+#uri WWW_REMOVEYOU_COM		/removeyou\.com/i
+#describe WWW_REMOVEYOU_COM	Frequent SPAM content
+#
+#uri YELLOWSUN			/yellowsun01\.com/i   
+#describe YELLOWSUN		Frequent SPAM content
+#
+#rawbody CARRIAGE_RETURNS	eval:check_carriage_returns()
+#describe CARRIAGE_RETURNS	Message contains a lot of ^M characters
+#lang fr describe CARRIAGE_RETURNS       Message contennant plein de caractères ^M (retour chariot)
+#
+#header NIGERIAN_SUBJECT3	Subject =~ /^(?:Re:|\[.{1,10}\])?\s*your assistance\b/i
+#describe NIGERIAN_SUBJECT3	Subject is indicative of a Nigerian spam
+#header NIGERIAN_SUBJECT4	Subject =~ /^(?:Re:|\[.{1,10}\])?\s*i need your urgent\b/i
+#describe NIGERIAN_SUBJECT4	Subject is indicative of a Nigerian spam
+#header NIGERIAN_SUBJECT5	Subject =~ /^(?:Re:|\[.{1,10}\])?\s*treat as urgent\b/i
+#describe NIGERIAN_SUBJECT5	Subject is indicative of a Nigerian spam
+#header NIGERIAN_SUBJECT7	Subject =~ /^(?:Re:|\[.{1,10}\])?\s*[!*_-]+\s*(?:business|urgent)/i
+#describe NIGERIAN_SUBJECT7	Subject is indicative of a Nigerian spam
+#header NIGERIAN_SUBJECT8	Subject =~ /^(?:Re:|\[.{1,10}\])?\s*(?:appeal|request) for urgent assistance$/i
+#describe NIGERIAN_SUBJECT8	Subject is indicative of a Nigerian spam
+#
+#meta FORGED_MUA_MUTT		__USER_AGENT_MUTT && !__VALID_MUTT_MSGID
+#describe FORGED_MUA_MUTT	Forged mail pretending to be sent from Mutt
+#
+#body EU_EMAIL_OPTOUT            	/EU (?:e-?mail opt.?out|e.?commerce) directive/i
+#describe EU_EMAIL_OPTOUT        	Claims compliance with European spam regulations
+
+# Rules that have a 0 score, re-enabling for mass-checks, etc.
+score ALL_CAP_PORN 0.001
+score ANTISPAM_BILL 0.001
+score ASCII_FORM_ENTRY 0.001
+score ASKS_BILLING_ADDRESS 0.001
+score BANG_GUARANTEE 0.001
+score BANG_MORE 0.001
+score BARELY_LEGAL 0.001
+score BEST_PORN 0.001
+score BE_AMAZED 0.001
+score CALL_FREE 0.001
+score CASHCASHCASH 0.001
+score CLICK_BELOW 0.001
+score CONGRATULATIONS 0.001
+score DATE_IN_FUTURE_96_XX 0.001
+score DATE_IN_PAST_12_24 0.001
+score DATE_IN_PAST_24_48 0.001
+score DEAR_FRIEND 0.001
+score DIET 0.001
+score DIRECT_EMAIL 0.001
+score DISCLAIMER_LEGALESE 0.001
+score DOMAIN_4U2 0.001
+score DOMAIN_BODY 0.001
+score DOMAIN_SUBJECT 0.001
+score DONT_DELETE 0.001
+score DO_IT_TODAY 0.001
+score EARN_PER_WEEK 0.001
+score EXCUSE_1 0.001
+score EXCUSE_10 0.001
+score EXCUSE_13 0.001
+score EXCUSE_14 0.001
+score EXCUSE_16 0.001
+score EXCUSE_7 0.001
+score FAILURE_NOTICE_1 0.001
+score FAILURE_NOTICE_2 0.001
+score FANTASTIC 0.001
+score FOR_INSTANT_ACCESS 0.001
+score FOR_JUST_SOME_AMT 0.001
+score FREE_ACCESS 0.001
+score FREE_DVD 0.001
+score FREE_SAMPLE 0.001
+score FREE_TRIAL 0.001
+score FROM_HAS_MIXED_NUMS 0.001
+score FROM_HAS_UNDERLINE_NUMS 0.001
+score FROM_STARTS_WITH_NUMS 0.001
+score FWD_MSG 0.001
+score GET_IT_NOW 0.001
+score GREAT_OFFER 0.001
+score GUARANTEED_STUFF 0.001
+score HAS_ORGANIZATION 0.001
+score HIDDEN_CHARGES 0.001
+score HOTMAIL_FOOTER1 0.001
+score HOTMAIL_FOOTER4 0.001
+score HOTMAIL_FOOTER5 0.001
+score HTML_90_100 0.001
+score HTML_COMMENT_EGP 0.001
+score HTML_COMMENT_EMAIL 0.001
+score HTML_EMBEDS 0.001
+score HTML_EVENT 0.001
+score HTML_EVENT_UNSAFE 0.001
+score HTML_FONT_BIG_B 0.001
+score HTML_FONT_COLOR_CYAN 0.001
+score HTML_FONT_COLOR_MAGENTA 0.001
+score HTML_FONT_COLOR_NAME 0.001
+score HTML_FONT_COLOR_NOHASH 0.001
+score HTML_FONT_COLOR_UNKNOWN 0.001
+score HTML_FONT_COLOR_YELLOW 0.001
+score HTML_FONT_FACE_BAD 0.001
+score HTML_FONT_FACE_CAPS 0.001
+score HTML_FONT_INVISIBLE 0.001
+score HTML_IMAGE_AREA_04 0.001
+score HTML_IMAGE_AREA_05 0.001
+score HTML_IMAGE_AREA_06 0.001
+score HTML_IMAGE_AREA_07 0.001
+score HTML_IMAGE_ONLY_08 0.001
+score HTML_IMAGE_ONLY_12 0.001
+score HTML_IMAGE_RATIO_06 0.001
+score HTML_IMAGE_RATIO_10 0.001
+score HTML_IMAGE_RATIO_12 0.001
+score HTML_IMAGE_RATIO_14 0.001
+score HTML_JAVASCRIPT 0.001
+score HTML_RELAYING_FRAME 0.001
+score HTML_SHOUTING3 0.001
+score HTML_SHOUTING5 0.001
+score HTML_TAG_BALANCE_A 0.001
+score HTML_TAG_BALANCE_BODY 0.001
+score HTML_TAG_BALANCE_FONT 0.001
+score HTML_TAG_BALANCE_HEAD 0.001
+score HTML_TAG_BALANCE_HTML 0.001
+score HTML_TAG_BALANCE_TABLE 0.001
+score HTML_TAG_EXISTS_BASE 0.001
+score HTML_TAG_EXISTS_PARAM 0.001
+score HTML_TITLE_EMPTY 0.001
+score HTML_WIN_BLUR 0.001
+score HTML_WIN_FOCUS 0.001
+score HTML_WITH_BGCOLOR 0.001
+score HTTP_ESCAPED_HOST 0.001
+score HTTP_WITH_EMAIL_IN_URL 0.001
+score INCREASE_SOMETHING 0.001
+score INSTANT_ACCESS 0.001
+score JAVASCRIPT_URI 0.001
+score LARGE_COLLECTION 0.001
+score LINES_OF_YELLING 0.001
+score LINES_OF_YELLING_2 0.001
+score LINES_OF_YELLING_3 0.001
+score LINK_TO_NO_SCHEME 0.001
+score LONG_DISTANCE 0.001
+score LOTS_OF_STUFF 0.001
+score LOW_PRICE 0.001
+score MAILER_DAEMON 0.001
+score MAILTO_LINK 0.001
+score MAILTO_WITH_SUBJ 0.001
+score MASS_EMAIL 0.001
+score MILLION_USD 0.001
+score MIME_BOUND_MA 0.001
+score MIME_EXCESSIVE_QP 0.001
+score MIME_HTML_NO_CHARSET 0.001
+score MIME_MISSING_BOUNDARY 0.001
+score MISSING_HEADERS 0.001
+score MISSING_OUTLOOK_NAME 0.001
+score MSGID_HAS_NO_AT 0.001
+score MSN_FOOTER1 0.001
+score NEW_CUSTOMER 0.001
+score NIGERIAN_SUBJECT6 0.001
+score NO_DISAPPOINTMENT 0.001
+score NO_OBLIGATION 0.001
+score NO_QS_ASKED 0.001
+score ONCE_IN_LIFETIME 0.001
+score ONE_TIME 0.001
+score ONLY_COST 0.001
+score OPT_OUT 0.001
+score OPT_OUT_CAPS 0.001
+score ORDER_NOW 0.001
+score PATCH_CONTEXT_DIFF 0.001
+score PHONE_CANCER 0.001
+score PLING_QUERY 0.001
+score PRIZE 0.001
+score RATWARE_SCREWUP_2 0.001
+score REFINANCE_YOUR_HOME 0.001
+score REMOVAL_INSTRUCTIONS 0.001
+score REMOVE_FROM_LIST 0.001
+score REPLY_REMOVE_SUBJECT 0.001
+score RESENT_TO 0.001
+score SAVE_BUCKS 0.001
+score SAVE_MONEY 0.001
+score SAVE_UP_TO 0.001
+score SAVINGS 0.001
+score SELECTED_YOU 0.001
+score SHOPPING_SPREE 0.001
+score SIGNATURE_SHORT_DENSE 0.001
+score SIGNATURE_SHORT_SPARSE 0.001
+score SMTPD_IN_RCVD 0.001
+score SUBJ_2_CREDIT 0.001
+score SUBJ_FOR_ONLY 0.001
+score SUBJ_FREE_CAP 0.001
+score SUPPLIES_LIMITED 0.001
+score TO_ADDRESS_EQ_REAL 0.001
+score TO_HAS_SPACES 0.001
+score UNSUB_PAGE 0.001
+score UNSUB_SCRIPT 0.001
+score UPPERCASE_50_75 0.001
+score UPPERCASE_75_100 0.001
+score USER_AGENT 0.001
+score USER_AGENT_APPLEMAIL 0.001
+score USER_AGENT_ENTOURAGE 0.001
+score USER_AGENT_IMP 0.001
+score USER_AGENT_MACOE 0.001
+score USER_AGENT_MOZILLA_XM 0.001
+score VERB_UP_TO_OR_MORES 0.001
+score WEIRD_PORT 0.001
+score WHILE_SUPPLIES 0.001
+score WHY_PAY_MORE 0.001
+score WORK_AT_HOME 0.001
+score X_ACCEPT_LANG 0.001
+score X_MSMAIL_PRIORITY_HIGH 0.001
+score YAHOO_MSGID_ADDED 0.001
+score YOU_WON 0.001
+score DEBIAN_BTS_BUG 0.001
+score HTML_IMAGE_AREA_08 0.001
+score MAILMAN_REMINDER 0.001
+score NO_MEDICAL 0.001
+score RATWARE_CHARSET_V2 0.001
+score RATWARE_DIRECT_EMAIL 0.001
+score PORN_GALLERIES 0.001
+score NO_SELLING 0.001
+score NO_MIDDLEMAN 0.001
+score WWW_AUTOREMOVE_COM 0.001
+score MICROSOFT 0.001
+score EXCUSE_18 0.001
+score EXPERTS_SHOW_HOW 0.001
+score NO_GIMMICK 0.001
+score MIME_LONG_LINE_QP 0.001
+score DATE_IN_PAST_48_96 0.001
+score RATWARE_CHARSET 0.001
+score US_DOLLARS_2 0.001
+score RATWARE_CARETOP 0.001
+score PRIORITY_MAIL 0.001
+score WWW_CLIK4YOU_COM 0.001
+score SERIOUS_ONLY 0.001
+score RATWARE_GR 0.001
+score SPAM_FORM 0.001
+score NATURAL_VIAGRA 0.001
+score MURKOWSKI_CRUFT 0.001
+score SMIME_SIGNATURE 0.001
+score MAILTO_TO_B2BMAIL 0.001
+score SPAM_FORM_INPUT 0.001
+score EMAIL_MARKETING 0.001
+score MORE_TRAFFIC 0.001
+score SPAM_FORM_RETURN 0.001
+score MAILMAN_CONFIRM 0.001
+score SPAM_FORM_ACTION 0.001
+score IN_ACCORDANCE_WITH_LAWS 0.001
+score MARKUP_SSPL 0.001
+score CONFIDENTIAL_ORDER 0.001
+score SUBJ_RIPPED 0.001
+score RATWARE_DIFFOND 0.001
+score MAJORDOMO 0.001
+score OUR_COMPENSATION 0.001
+score HELPED_FINANCE 0.001
+score AUTO_EMAIL_REMOVAL 0.001
+score TRACE_BY_SSN 0.001
+score VAR_REF_IN_RECEIVED 0.001
+score INCREDIBLE 0.001
+score ENHANCE_WEBSITE 0.001
+score WORRY_FREE 0.001
+score X_MAILER_GIBBERISH 0.001
+score INTL_EXEC_GUILD 0.001
+score FORGED_MUA_MSN 0.001
+score HTML_IMAGE_AREA_09 0.001
+score TO_INVESTORS 0.001
+score PRODUCED_AND_SENT_OUT 0.001
+score RATWARE_LC_OUTLOOK 0.001
+score DISCONTINUE 0.001
+score CREDIT_BUREAU 0.001
+score UNDISC_RECIPS 0.001
+score MSN_GROUPS 0.001
+score EXCUSE_2 0.001
+score EXCUSE_8 0.001
+score S_1618 0.001
+score MONSTERHUT 0.001
+score WEALTH 0.001
+score X_FIX_PRESENT 0.001
+score BUY_JUDGEMENTS 0.001
+score CREDITORS_CALLING 0.001
+score EJACULATION 0.001
+score CHILD_SUPPORT 0.001
+score MANY_FROMS 0.001
+score POST_IN_RCVD 0.001
+score MICRO_CAP_WARNING 0.001
+score HOTMAIL_FOOTER2 0.001
+score HOTMAIL_FOOTER3 0.001
+score HTML_00_10 0.001
+score CHANGE_TERMS 0.001
+score SECRET_RECORD 0.001
+score PSYCHIC 0.001
+score OUR_PUBLICATIONS 0.001
+score SUBJECT_IS_IN_REVIEW 0.001
+score RATWARE_BANG_HASH 0.001
+score MIME_BOUND_MAIL_BOUND 0.001
+score HTML_MESSAGE 0.001
+score BAD_HELO_WARNING 0.001
+score RAZOR2_CF_RANGE_01_10 0.001
+score RAZOR2_CF_RANGE_11_20 0.001
+score RAZOR2_CF_RANGE_21_30 0.001
+score RAZOR2_CF_RANGE_31_40 0.001
+score RAZOR2_CF_RANGE_41_50 0.001
+score RAZOR2_CF_RANGE_51_60 0.001
+score RAZOR2_CF_RANGE_61_70 0.001
+score RAZOR2_CF_RANGE_71_80 0.001
+score RAZOR2_CF_RANGE_81_90 0.001
+score RAZOR2_CF_RANGE_91_100 0.001
+score RCVD_IN_RELAYS_ORDB_ORG 0.001
+score X_OSIRU_DUL 0.001
+score X_OSIRU_DUL_FH 0.001
+score X_OSIRU_OPEN_RELAY 0.001
+score X_OSIRU_SPAMWARE_SITE 0.001
+score X_OSIRU_SPAM_SRC 0.001
+score RCVD_IN_MULTIHOP_DSBL 0.001
+score RCVD_IN_UNCONFIRMED_DSBL 0.001
+score RCVD_IN_VISI 0.001
+score X_NJABL_DIALUP 0.001
+score BAYES_40 0.001
+score BAYES_44 0.001
+score BAYES_50 0.001
+score BAYES_56 0.001
