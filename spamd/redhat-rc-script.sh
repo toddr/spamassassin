@@ -17,6 +17,13 @@
 # Check that networking is up.
 [ ${NETWORKING} = "no" ] && exit 0
 
+# Source spamd configuration.
+if [ -f /etc/sysconfig/spamassassin ] ; then
+        . /etc/sysconfig/spamassassin
+else
+        SPAMDOPTIONS="-d -c -a -m5 -H"
+fi
+
 [ -f /usr/bin/spamd -o -f /usr/local/bin/spamd ] || exit 0
 PATH=$PATH:/usr/bin:/usr/local/bin
 
@@ -25,24 +32,31 @@ case "$1" in
   start)
 	# Start daemon.
 	echo -n "Starting spamd: "
-	daemon spamd -d -a -c
-	touch /var/lock/spamd
-	;;
+	daemon spamd $SPAMDOPTIONS
+	RETVAL=$?
+        echo
+        [ $RETVAL = 0 ] && touch /var/lock/subsys/spamassassin
+        ;;
   stop)
-	# Stop daemons.
-	echo -n "Shutting down spamd: "
-	killproc spamd
-	rm -f /var/lock/spamd
-	;;
+        # Stop daemons.
+        echo -n "Shutting down spamd: "
+        killproc spamd
+        RETVAL=$?
+        echo
+        [ $RETVAL = 0 ] && rm -f /var/lock/subsys/spamassassin
+        ;;
   restart)
-	$0 stop
-	$0 start
-	;;
+        $0 stop
+        $0 start
+        ;;
+  condrestart)
+       [ -e /var/lock/subsys/spamassassin ] && $0 restart
+       ;;
   status)
 	status spamd
 	;;
   *)
-	echo "Usage: $0 {start|stop|restart|status}"
+	echo "Usage: $0 {start|stop|restart|status|condrestart}"
 	exit 1
 esac
 
