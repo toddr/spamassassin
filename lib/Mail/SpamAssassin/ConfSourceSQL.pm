@@ -54,6 +54,8 @@ sub load {
    }
 
    eval {
+     # make sure we can see croak messages from DBI
+     local $SIG{'__DIE__'} = sub { warn "$_[0]"; };
      require DBI;
      load_with_dbi($self, $username, $dsn);
    };
@@ -69,18 +71,21 @@ sub load_with_dbi {
    my $main = $self->{main};
    my $dbuser = $main->{conf}->{user_scores_sql_username};
    my $dbpass = $main->{conf}->{user_scores_sql_password};
+   my $table = $main->{conf}->{user_scores_sql_table};
 
    my $dbh = DBI->connect($dsn, $dbuser, $dbpass, {'PrintError' => 0});
 
    if($dbh) {
-      my $sql = 
-         "select preference, value  from userpref where username = " .
-         $dbh->quote($username) ." OR username = 'GLOBAL'";
+      my $sql = "select preference, value  from $table where ". 
+        "username = ".$dbh->quote($username).
+        " or username = 'GLOBAL'".
+        " or username = '\@GLOBAL' order by username asc";
+
       my $sth = $dbh->prepare($sql);
       if($sth) {
          my $rv  = $sth->execute();
          if($rv) {
-            dbg("retreiving prefs from SQL server");
+            dbg("retrieving prefs for $username from SQL server");
             my @row;
             my $text = '';
             while(@row = $sth->fetchrow_array()) {

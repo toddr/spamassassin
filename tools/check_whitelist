@@ -1,45 +1,23 @@
 #!/usr/bin/perl
-use warnings ;
-use strict ;
+
+use strict;
 use Fcntl;
+
+# must match line at top of lib/Mail/SpamAssassin/DBBasedAddrList.pm.
+BEGIN { @AnyDBM_File::ISA = qw(DB_File GDBM_File NDBM_File SDBM_File); }
+
 use AnyDBM_File ;
 use vars qw( %h $k $v ) ;
 
-my $dirbased = $ENV{HOME}."/.spamassassin/auto-whitelist";
 my $db = $ENV{HOME}."/.spamassassin/auto-whitelist";	# is this right?
 
-if (-f "$db.db") {
-  tie %h, "AnyDBM_File",$db, O_RDWR|O_CREAT|O_EXCL,0600
+tie %h, "AnyDBM_File",$db, O_RDONLY,0600
       or die "Cannot open file $db: $!\n";
-  while (($k, $v) = each %h) { print "$k -> $v (DB)\n" }
-  untie %h;
+my @k = grep(!/totscore$/,keys(%h));
+for my $key (@k)
+{
+	my $t = $h{"$key|totscore"};
+	my $v = $h{$key};
+	if(defined($t)) { printf "% 8.1f %15s  --  %s\n",$t/$v,"($t/$v)",$key; };
 }
-
-if (-d $dirbased) {
-  use File::Find;
-
-  File::Find::find (\&accwanted, "$dirbased/accumulator");
-  File::Find::find (\&permwanted, "$dirbased/permanent");
-
-  sub accwanted {
-    return unless (-f $_);
-
-    my $name = $File::Find::name; $name =~ s/[\\\/\:]//gs;
-    $name =~ s/^.*accumulator//gs;
-
-    my $count = 0;
-    open (IN, "<$_"); while (<IN>) { $count++; } close IN;
-    print "$name -> $count (dir-based)\n";
-  }
-
-  sub permwanted {
-    return unless (-f $_);
-
-    my $name = $File::Find::name; $name =~ s/[\\\/\:]//gs;
-    $name =~ s/^.*permanent//gs;
-
-    open (IN, "<$_"); while (<IN>) {
-      chomp; print "$_ -> 999 (dir-based)\n";
-    } close IN;
-  }
-}
+untie %h;

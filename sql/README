@@ -7,17 +7,18 @@ here is to have a web application (PHP/perl/ASP/etc.) that will allow users to
 be able to update their local preferences on how SpamAssassin will filter their
 e-mail.  The most common use for a system like this would be for users to be
 able to update the white list of addresses (whitelist_from) without the need
-for them to update their $HOME/.spamassasin.cf file.  It is also quite common
-for users listed in /etc/passwd to not have a home directory, therefore, the
-only way to have their own local settings would be through an RDMS system.
+for them to update their $HOME/.spamassassin/user_prefs file.  It is also quite
+common for users listed in /etc/passwd to not have a home directory,
+therefore, the only way to have their own local settings would be through an
+RDBMS system.
 
-SpamAssassin will check the global configuration file (normally
-/etc/spamassassin.cf or /usr/local/lib/perl5/site-perl/<VER>/spamassassin.cf)
-for the following settings:
+SpamAssassin will check the global configuration file (ie. any file matching
+/etc/mail/spamassassin/*.cf) for the following settings:
 
 user_scores_dsn			DBI:driver:database:hostname[:port]
 user_scores_sql_username	dbusername
 user_scores_sql_password	dbpassword
+user_scores_sql_table           tablename
 
 The first option, user_scores_dsn, describes the data source name that will be
 used to create the connection to your SQL server.  It MUST be in the format
@@ -39,13 +40,34 @@ to use an SQL for retrieving users' preferences. Note that this will NOT look
 for test rules, only local scores, whitelist_from(s), required_hits, and
 auto_report_threshold.
 
+Requirements
+------------
+
+In order for SpamAssassin to work with your SQL database, you must have
+the perl DBI module installed, AS WELL AS the DBD driver/module for your
+specific database.  For example, if using MySQL as your RDBMS, you must have
+the Msql-Mysql module installed.  Check CPAN for the latest versions of DBI 
+and your database driver/module. 
+
+We are currently using:
+
+DBI-1.20
+Msql-Mysql-modules-1.2219
+perl v5.6.1
+
+But older versions should work fine as the SQL code in SpamAssassin is as 
+simple as could be.
+
+
 Database Schema
 ---------------
 
-The database must contain a table named "userpref" with at least three fields:
-username varchar(8)	# this is the username whose e-mail is being filtered
-preference varchar(30) 	# the preference (whitelist_from, required_hits, etc.)
-value varchar(100)	# the value of the named preference
+The database must contain a table named by 'user_scores_sql_table' (default
+setting: "userpref") with at least three fields:
+
+  username varchar(8)	  # this is the username whose e-mail is being filtered
+  preference varchar(30)  # the preference (whitelist_from, required_hits, etc.)
+  value varchar(100)	  # the value of the named preference
 
 You can add as many other fields you wish as long as the above three fields are
 contained in the table.
@@ -74,17 +96,58 @@ spamc/spamd in order for this to work, and the current username must be passed
 to spamd.  This can be done from spamc using the following .procmailrc recipe:
 
 :0wf
-| /usr/local/bin/spamc -u $LOGNAME
+| /usr/local/bin/spamc -f
 
-This has only been tested using MySQL as the RDMS, but it has been written
-with the utmost simplicity using DBI, and any database driver that conforms
-to the DBI interface should work without problems.
+(watch out; spamc could be installed as /usr/bin/spamc instead.)
+If you are using this from /etc/procmailrc, you must include DROPPRIVS=yes 
+before spamc.  An example /etc/procmailrc:
+
+DROPPRIVS=yes
+
+:0fw
+| /usr/local/bin/spamc -f
+
+
+Testing SpamAssassin/SQL
+------------------------
+
+To test your SQL setup, and debug any possible problems, you should start
+spamd with the -D option, which will keep spamd in the foreground, and will
+output debug message to the terminal. You should then test spamd with a
+message by calling spamc.  You can use the sample-spam.txt file with the
+following command:
+
+cat sample-spam.txt | spamc
+
+Watch the debug output from spamd and look for the following debug line:
+
+retrieving prefs for <username> from SQL server
+
+If you do not see the above text, then the SQL query was not successful, and
+you should see any error messages reported. <username> should be the user
+that was passed to spamd and is usually the user executing spamc.
+
+Note that any prefs stored under the username '@GLOBAL' are used as defaults
+for all users.  (in earlier versions, 'GLOBAL' was used, but this is now
+deprecated).
+
+This code has only been tested using MySQL as the RDMS, but it has been written
+with the utmost simplicity using DBI, and any database driver that conforms to
+the DBI interface should work without problems.
 
 ******
 NB:  This should be considered BETA, and the interface, schema, or overall
 operation of SQL support may change at any time with future releases of SA.
 ******
 
-Please send any comments to jengland /at/ enetis.net
+
+PHP Interface
+-------------
+
+This can be downloaded from http://spamassassin.org/devel/ , called
+"php-sa-mysql-n.n"  where n.n is the version number.
+
+
+Please send any comments to jengland /at/ enetis.net .
 
 Justin England

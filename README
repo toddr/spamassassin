@@ -12,9 +12,9 @@ commercial email.
 Once identified, the mail can then be optionally tagged as spam for later
 filtering using the user's own mail user-agent application.
 
-In its most recent test, SpamAssassin differentiated between spam and
-non-spam mail correctly in 99.94% of cases.  Since then, it's just been
-getting better and better!
+SpamAssassin typically differentiates successfully between spam and
+non-spam in between 95% and 99% of cases, depending on what kind
+of mail you get.
 
 SpamAssassin also includes support for reporting spam messages
 automatically, and/or manually, to collaborative filtering databases such
@@ -34,10 +34,11 @@ client, this allows an MTA to process large volumes of mail through
 SpamAssassin without having to fork/exec a perl interpreter for each one.
 
 Ian R. Justman has contributed "spamproxy", a spam-filtering SMTP proxy
-server.  This lives in the "spamproxy" directory.
+server.  This lives in the "released" directory on the web site.
 
-SpamAssassin lives at http://spamassassin.taint.org/ or in CPAN, and is
-distributed under the same license as Perl itself.
+SpamAssassin lives at http://spamassassin.org/ or in CPAN, and is
+distributed under the same license as Perl itself.  Use of the
+SpamAssassin name is restricted as documented in the file named "Trademark".
 
 This module owes a lot of inspiration to Mark Jeftovic's filter.plx, which
 I used for a long time, and contributed some code to.  However,
@@ -51,246 +52,20 @@ Questions regarding SpamAssassin should be sent to the mailing list:
 <spamassassin-talk /at/ lists /dot/ sourceforge /dot/ net>.
 
 
+
 Installing SpamAssassin
 -----------------------
 
-The easiest way to do this is using CPAN.pm, like so:
+See the INSTALL file.
 
-	perl -MCPAN -e shell
-	o conf prerequisites_policy ask
-	install Mail::SpamAssassin
-	quit
 
-On Debian, you can apt-get it from unstable, thanks to Duncan Findlay.
 
-Alternatively download the tarfile, zipfile or Red Hat RPM from
-http://spamassassin.taint.org/ , and install that, like so:
+Customising SpamAssassin
+------------------------
 
-	[unzip/untar the archive]
-	cd Mail-SpamAssassin-*
-	perl Makefile.PL
-	make
-	make install				[as root]
-
-
-Optional Additional Modules
----------------------------
-
-In addition, the following modules will be used for some checks, if
-available.  If they are not available, SpamAssassin will still work, just
-not as effectively -- some of the spam-detection tests will have to be
-skipped.
-
-
-  - Net::DNS	(from CPAN)
-
-    Used to check the RBL, RSS, DUL etc. and perform MX checks.
-    Recommended.
-
-	perl -MCPAN -e shell
-	o conf prerequisites_policy ask
-	install Net::DNS
-	quit
-
-
-  - Razor	http://razor.sourceforge.net/
-
-    Used to check message signatures against Vipul's Razor collaborative
-    filtering network.  Razor is not available from CPAN -- you have to
-    download it from the URL above.
-
-    Razor has a large number of dependencies on CPAN modules.  Feel free
-    to skip installing it, if this makes you nervous; SpamAssassin will
-    still work well without it.
-
-
-  - Mail::Audit, Mail::Internet, Net::SMTP	(from CPAN)
-
-    If you intend to let SpamAssassin handle local mail delivery to your
-    mail spool file, or if you want to use a Mail::Audit mail-delivery
-    script, you will require the Mail::Audit module, and any modules it
-    requires (there's lots of them, unfortunately.)
-
-    If you use procmail, or you plan to use 'spamd', you will *not* need
-    these.
-
-    Here's how to install them using CPAN.pm:
-
-	perl -MCPAN -e shell
-	o conf prerequisites_policy ask
-	install Mail::Audit
-	quit
-
-
-Using SpamAssassin
-------------------
-
-
-Steps to take for every installation:
-
-  - Install Mail::SpamAssassin on your mail server, as above.
-
-  - Test it:
-
-      spamassassin -t < sample-nonspam.txt > nonspam.out
-      spamassassin -t < sample-spam.txt > spam.out
-
-    Verify (using a text viewer, ie. "less" or "notepad") that nonspam.out
-    has not been tagged as spam, and that spam.out has.  The files should
-    contain the full text and headers of the messages, the "spam.out"
-    message should be annotated with "****SPAM****" in the subject line
-    and a report from SpamAssassin, and there should be no errors when you
-    run the commands.
-
-    Even though sample-nonspam.txt is not spam, nonspam.out will contain a
-    SpamAssassin report anyway.  This is a side-effect of the "-t" (test)
-    switch.  However, there should be less than 5 hits accumulated; when
-    the "-t" switch is not in use, the report text would not be added.
-
-    If the commands do not work, DO NOT PROCEED TO THE NEXT STEP, as you
-    will lose mail!
-
-
-
-If you use Mail::Audit already:
-
-  - run "perldoc Mail::SpamAssassin" and take a look at the synopsis, it
-    outlines what you need to add to your audit script.
-
-  - Copy the configuration files (see CUSTOMISING, below) to a known
-    location, so your script can set the appropriate options for the
-    Mail::SpamAssassin constructor to load them.
-
-
-
-If you're using procmail:
-
-  - Make a backup of your .procmailrc (if it exists).
-
-      cp ~/.procmailrc ~/.procmailrc.bak
-
-  - add the following lines to ~/.procmailrc, at the top of the file
-    before any existing recipes:
-
-      :0:fw
-      | spamassassin -P
-
-      :0e
-      {
-	 EXITCODE=$?
-      }
-
-      :0:  
-      * ^Subject:.*\*\*\*\*SPAM\*\*\*\*
-      caughtspam
-
-    That'll process all mail through SA, and refile spam messages to
-    a folder called "caughtspam" in your home directory.
-
-  - Send yourself a mail message, and ensure it gets to you.  If it does
-    not, copy your old backed-up .procmailrc file back into place and ask
-    your sysadmin for help!  Here's commands to do that:
-
-      cp ~/.procmailrc.bak ~/.procmailrc
-      echo "Help!" | mail root
-
-
-If you want to use SpamAssassin site-wide:
-
-  - take a look at the notes on the website, at
-    http://spamassassin.taint.org/sitewide.html .  You may want to use
-    'spamd' (see below).
-
-  - another option is Ian R. Justman's "spamproxy", a spam-filtering SMTP
-    proxy server.  This lives in the "spamproxy" directory.
-
-
-If you don't use any mail filter just yet, and want to let SpamAssassin
-handle local mail delivery using Mail::Audit:
-
-  - First, consider using procmail (see above), it's recommended for this
-    situation.
-
-  - If you're still sure you want to go ahead, install the Mail::Audit
-    module.
-
-      perl -MCPAN -e shell
-      o conf prerequisites_policy ask
-      install Mail::Audit
-      quit
-
-  - Make a backup of your .forward (if it exists).
-
-      cp ~/.forward ~/.forward.bak
-
-  - Change your ~/.forward file so it reads like this:
-
-      "| spamassassin || exit 75"
-
-  - Send yourself a mail message, and ensure it gets to you.  If it does
-    not, copy your old backed-up .forward file back into place and ask
-    your sysadmin for help!  Here's commands to do that:
-
-      cp ~/.forward.bak ~/.forward
-      echo "Help!" | mail root
-
-  - Send yourself sample-spam.txt and make sure it gets tagged:
-
-      /usr/sbin/sendmail yourusername < sample-spam.txt
-
-
-Other installation notes:
-
-  - If you get spammed, it is helpful to everyone else if you re-run
-    spamassassin with the "-r" option to report the message in question as
-    "verified spam".  This will add it to Vipul's Razor
-    (http://razor.sourceforge.net/), a collaborative spam filtering
-    network, if you've installed the Razor modules.
-
-      spamassassin -r < spam-message
-
-    If you use mutt as your mail reader, this macro will bind the X key to
-    report a spam message.
-
-      macro index X "| spamassassin -r"
-
-    This is, of course, optional -- but you'll get lots of good-netizen
-    karma. ;)
-
-
-  - Quite often, if you've been on the internet for a while, you'll have
-    accumulated a few old email accounts that nowadays get nothing but
-    spam.  You can set these up as spam traps using SpamAssassin; see the
-    ''SPAM TRAPPING'' section of the spamassassin manual page for details.
-
-    If you don't want to go to the bother of setting up a system yourself
-    to do this, feel free to set up a simple alias to forward any mails to
-    <someaddress@spamtraps.taint.org> -- replace "someaddress" with
-    something to identify you, such as your email addr or website with
-    non-alphanumeric chars replaced by underscores, or similar.   This
-    will feed it into my spam-trapping system running on taint.org, where
-    it will be fed into Razor.
-
-
-  - The distribution now includes 'spamd', a daemonized version of the
-    perl script, and 'spamc', a low-overhead C client for this,
-    contributed by Craig R. Hughes.  This greatly reduces the overhead of
-    checking large volumes of mail with SpamAssassin.  Take a look in the
-    'spamd' directory for more details.
-
-
-  - There's also Ian R. Justman's "spamproxy", a spam-filtering SMTP
-    proxy server.  This lives in the "spamproxy" directory.
-
-
-  - Scores and other user preferences can now be loaded from an SQL
-    database; see the 'sql' subdirectory for more details.
-
-
-Customising
------------
-
-These are the configuration files installed by SpamAssassin:
+These are the configuration files installed by SpamAssassin.  The commands
+that can be used therein are listed in the POD documentation for the
+Mail::SpamAssassin::Conf class (see the 'doc' directory).
 
   - /usr/share/spamassassin/*.cf:
 
@@ -308,7 +83,7 @@ These are the configuration files installed by SpamAssassin:
 	Distributed default user preferences. Do not modify this, as it is
 	overwritten when you upgrade.
 
-  - /etc/mail/user_prefs.template:
+  - /etc/mail/spamassassin/user_prefs.template:
 
 	Default user preferences, for system admins to create, modify, and
 	set defaults for users' preferences files.  Takes precedence over
@@ -337,6 +112,40 @@ These are the configuration files installed by SpamAssassin:
 	"~/.spamassassin.cf" file, if they like.  (spamd disables this for
 	security and increased speed.)
 
+Take a look at the "Mail_SpamAssassin_Conf.txt" file in the "doc"
+directory to see what can be set.  Common first-time tweaks include:
+
+  - required_hits
+
+	Set this higher to make SpamAssassin less sensitive.
+        If you are installing SpamAssassin system-wide, this is
+        **strongly** recommended!
+
+        Statistics on how many false positives to expect at various
+        different thresholds are available in the "STATISTICS.txt" file in
+        the "rules" directory.
+
+  - rewrite_subject
+
+  	Turn off Subject-line rewriting with this.
+
+  - subject_tag
+
+        When rewrite_subject is on, the subject stamp is *****SPAM*****.
+        This can be used to change it.
+
+  - ok_locales
+
+	If you expect to receive mail in non-ISO-8859 character sets (ie.
+	Chinese, Cyrillic, Japanese, Korean, or Thai) then set this.
+
+  - defang_mime
+
+	By default, SpamAssassin will 'de-fang' MIME messages, turning
+	them into content-type text/plain.  This will turn that behaviour
+	off.
+
+
 
 Locali[sz]ation
 ---------------
@@ -352,13 +161,15 @@ can add them to the distribution as "official" translations and build in
 support for this.  You will, of course, get credited for this work ;)
 
 
+
 Help With SpamAssassin
 ----------------------
 
 There's a mailing list for support or discussion of SpamAssassin.  It
 lives at <spamassassin-talk@lists.sourceforge.net>.  See
-http://spamassassin.taint.org/lists.html for the sign-up address and a
+http://spamassassin.org/lists.html for the sign-up address and a
 link to the archive of past messages.
+
 
 
 Commercial Tests
@@ -389,24 +200,26 @@ these lines to your ~/.spamassassin.cf file:
     score RCVD_IN_BL_SPAMCOP_NET    4
 
 
+
 Automatic Whitelist System
 --------------------------
 
-SpamAssassin includes automatic whitelisting; if a mail sender sends 3
-mails which are not matched as spam, their address will be added to an
-automatic whitelist database.  This will mean that further mail from that
-address will never be tagged as spam, no matter how "spammish" it may
-appear.
+SpamAssassin includes automatic whitelisting; The current iteration is
+considerably more complex than the original version.  The way it works is
+by tracking for each sender address the average score of messages so far
+seen from there.  Then, it combines this long-term average score for the
+sender with the score for the particular message being evaluated, after
+all other rules have been applied.
 
-For command-line spamassassin users, this happens automatically.  'spamd'
-needs the '-a' command-line flag to do this.
+This functionality is off by default, and is enabled with the "-a" flag to
+either spamassassin or spamd.
 
 A system-wide auto-whitelist can be used, by setting the
 auto_whitelist_path and auto_whitelist_file_mode configuration commands
 appropriately, e.g.
 
     auto_whitelist_path        /var/spool/spamassassin/auto-whitelist
-    auto_whitelist_file_mode   0777
+    auto_whitelist_file_mode   0666
 
 The spamassassin -W and -R command line flags provide an API to add and
 remove entries 'manually', if you so desire.  They operate based on an
@@ -416,11 +229,10 @@ details.
 
 The default address-list implementation,
 Mail::SpamAssassin::DBBasedAddrList, uses Berkeley DB files to store the
-addresses.  If you are paranoid about concurrency issues, in a
-high-traffic setup, and/or using NFS, it may be safer to use the
-directory-based implementation -- Mail::SpamAssassin::DirBasedAddrList --
-which uses known-safe UNIX filesystem operations to implement this without
-the possibility of dangerous race conditions.
+addresses.  There may be synchronization issues with this implementation
+in an NFS environment.  Reasonable attempts have been made to ensure
+proper locking of the DB file, but it may yet be somewhat flakey.
+
 
 
 (end of README)

@@ -13,28 +13,15 @@ date
 
 mv spam.local nonspam.local logs/old
 
-./mass-check /local2/mail-archives/kelsey.spamtrap.gz >> spam.local
-./mass-check /local2/mail-archives/spam.2000-2001.gz >> spam.local
-
-./mass-check /local2/mail-archives/scoop.1999 >> nonspam.local
-./mass-check /local2/mail-archives/oldmail.1998 >> nonspam.local
+# now run on sonic
+#./mass-check /local2/mail-archives/kelsey.spamtrap.gz >> spam.local
+#./mass-check /local2/mail-archives/spam.2000-2001.gz >> spam.local
 
 ./mass-check-for-jm ; sh commands.sh
 
-for f in /local2/mail-archives/crackmice-old/* ; do
-  ./mass-check $f >> nonspam.local
-done
-
-dog=dogma.slashnull.org
-rsync -vrze ssh $dog:ftp/spamassassin/masses/spam.log spam.dogma
-rsync -vrze ssh $dog:ftp/spamassassin/masses/nonspam.log nonspam.dogma
-
-cat nonspam.local nonspam.dogma logs/contrib/nonspam.log* > nonspam.log
-cat spam.local spam.dogma logs/contrib/spam.log* > spam.log
-
+./join-logs-from-net
 ./hit-frequencies > freqs
 ./mk-baseline-results
-
 ./copy-logs-to-deimos
 
 make clean

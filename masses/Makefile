@@ -1,32 +1,55 @@
+# Pick whether or not to use MPI here
+# Allowed values are yes, no
+MPI = yes
 
-OPT = -O6
-GALIB =	/local2/galib245
-PGALIB = pgapack
+# Pick a platform to build for - currently support linux, macosx
+PLATFORM = linux
 
-all:
-	echo "Either do  make evolve  or  make craig-evolve"
+# Pick where you have PGApack installed
+PGAPATH = pgapack
 
-evolve: tmp/tests.h evolve.o
-	g++ -Wall $(OPT) -fexceptions -L$(GALIB)/ga evolve.o -o evolve -lga -lm
+
+#### Should be no need to modify below this line
+
+ifeq ($(MPI),yes)
+  CC = mpicc
+  USE_MPI = -DUSE_MPI
+else
+  CC = gcc
+  USE_MPI =
+endif
+
+PGAINC = $(PGAPATH)/include
+
+ifeq ($(PLATFORM),macosx)
+  OPT = -O3 -mcpu=750 -faltivec
+  PGALIB = $(PGAPATH)/lib/freebsd
+  EXTRALIBS =
+else
+  OPT = -O9 -mcpu=athlon
+  PGALIB = $(PGAPATH)/lib/linux
+  EXTRALIBS = -lm
+endif
+
+all: evolve
+
+evolve: tmp/tests.h craig-evolve.c
+	$(CC) -Wall $(OPT) $(USE_MPI) -DWL=2 -DOPTIMIZE -L$(PGALIB) -I$(PGAINC) craig-evolve.c -o evolve -lpgaO $(EXTRALIBS)
 	strip evolve
 
-craig-evolve: tmp/tests.h craig-evolve.cxx
-	mpiCC -Wall $(OPT) -Dlinux -DWL=2 -DOPTIMIZE -L$(PGALIB)/lib/linux -I$(PGALIB)/include -lpgaO -lm craig-evolve.cxx -o craig-evolve
-	strip craig-evolve
-
-tmp/tests.h: spam.log nonspam.log tmp/ranges.data logs-to-c
+tmp/tests.h: tmp/.created tmp/ranges.data logs-to-c
 	./logs-to-c
 
-tmp/ranges.data: freqs score-ranges-from-freqs
+tmp/ranges.data: tmp/.created freqs score-ranges-from-freqs
 	./score-ranges-from-freqs < freqs
 
 freqs: spam.log nonspam.log
-	-rm -rf tmp
-	mkdir tmp
-	./hit-frequencies > freqs
+	./hit-frequencies -x -p > freqs
 
-%.o: %.cxx
-	g++ -Wall $(OPT) -fexceptions -I$(GALIB) -c $< -o $@
+tmp/.created:
+	-mkdir tmp
+	touch tmp/.created
 
 clean:
-	rm -rf *.o evolve tmp
+	rm -rf *.o evolve tmp freqs
+

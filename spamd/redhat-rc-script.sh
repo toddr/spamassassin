@@ -17,26 +17,38 @@
 # Check that networking is up.
 [ ${NETWORKING} = "no" ] && exit 0
 
-[ -f /usr/bin/spamd ] || exit 0
+# Source spamd configuration.
+if [ -f /etc/sysconfig/spamd ] ; then
+        . /etc/sysconfig/spamd
+else
+        OPTIONS="-d -c -a"
+fi
+
+[ -f /usr/bin/spamd -o -f /usr/local/bin/spamd ] || exit 0
+PATH=$PATH:/usr/bin:/usr/local/bin
 
 # See how we were called.
 case "$1" in
   start)
 	# Start daemon.
 	echo -n "Starting spamd: "
-	daemon /usr/bin/spamd -d -a -c
-	touch /var/lock/spamd
-	;;
+	daemon spamd $OPTIONS
+	RETVAL=$?
+        echo
+        [ $RETVAL = 0 ] && touch /var/lock/subsys/spamd
+        ;;
   stop)
-	# Stop daemons.
-	echo -n "Shutting down spamd: "
-	killproc spamd
-	rm -f /var/lock/spamd
-	;;
+        # Stop daemons.
+        echo -n "Shutting down spamd: "
+        killproc spamd
+        RETVAL=$?
+        echo
+        [ $RETVAL = 0 ] && rm -f /var/lock/subsys/spamd
+        ;;
   restart)
-	$0 stop
-	$0 start
-	;;
+        $0 stop
+        $0 start
+        ;;
   status)
 	status spamd
 	;;

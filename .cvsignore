@@ -1,4 +1,5 @@
 Changes.bak
+wordfreqs
 pm_to_blib
 distbin
 Makefile
@@ -15,3 +16,12 @@ doc
 spamassassin
 masses/logs
 spamd/spamc
+spamd/libspamc.so
+build-arch-stamp
+build-indep-stamp
+configure-stamp
+binaries.mk
+config.cache
+config.h
+config.log
+config.status

@@ -1,43 +1,5 @@
-# SpamAssassin rules file.
-#
-# The format is easy to grok:
-#
-#   report line-of-spam-report-text
-#       (some template items supported are:)
-#       _HITS_: the number of hits the message triggered
-#       _REQD_: the required hits to be considered spam
-#       _SUMMARY_: the full details of what hits were triggered
-#       _VER_: SpamAssassin version
-#       _HOME_: SpamAssassin home URL
-#
-#   header SYMBOLIC_TEST_NAME	header op pattern
-#	(The operations allowed (so far) are: =~  and: !~)
-#       (header can be 'ALL', which returns the text of all headers)
-#       (note that non-appearing headers are returned as the string 'undef')
-#
-#   header SYMBOLIC_TEST_NAME	eval:name_of_eval_method([args])
-#
-#   body SYMBOLIC_TEST_NAME	/pattern/modifiers
-#	(Evaluated for each text or HTML line in the message body.
-#       If you plan to use the default weight (1), you can omit the
-#       SYMBOLIC_TEST_NAME and just use "." instead.
-#
-#   body SYMBOLIC_TEST_NAME	eval:name_of_eval_method([args])
-#	(this is evaluated for the entire message body, not for each line)
-#
-#   full SYMBOLIC_TEST_NAME	/pattern/modifiers
-#	(Evaluated for the entire message body as one string.
-#       If you plan to use the default weight (1), you can omit the
-#       SYMBOLIC_TEST_NAME and just use "." instead.
-#
-#   full SYMBOLIC_TEST_NAME	eval:name_of_eval_method([args])
-#	(this is evaluated for the entire message, headers and all)
-#
-#   describe SYMBOLIC_TEST_NAME Textual description of test
-#       (body pattern tests don't require a description.)
-#
-# # starts a comment, whitespace is not significant.
-#
+# SpamAssassin rules file.  See 'man Mail::SpamAssassin::Conf' for details.
+# $Id: 10_misc.cf,v 1.14 2002/08/29 12:29:38 jmason Exp $
 ###########################################################################
 
 # Default template. Try to keep it under 76 columns (inside the the dots below).
@@ -49,8 +11,8 @@
 clear-report-template
 report -------------------- Start SpamAssassin results ----------------------
 report This mail is probably spam.  The original message has been altered
-report so you can recognise or block similar unwanted mail in future, using
-report the built-in mail filtering support in your mail reader.
+report so you can recognise or block similar unwanted mail in future.
+report See http://spamassassin.org/tag/ for more details.
 report 
 report Content analysis details:   (_HITS_ hits, _REQD_ required)
 report _SUMMARY_
@@ -109,64 +71,44 @@ terse-report ---- End of SpamAssassin results
 #user_scores_sql_password	spamfilter
 
 ###########################################################################
-# Default whitelists.  These should be addresses which send mail that
-# is often tagged (incorrectly) as spam; it also helps that they be
-# addresses of big companies with lots of lawyers, so if spammers
-# impersonate them, they'll get into big trouble, so it doesn't provide
-# a shortcut around SpamAssassin.
-#
-# Whitelist and blacklist addresses are now file-glob-style patterns, so
-# "friend@somewhere.com", "*@isp.com", or "*.domain.net" will all work.
-
-whitelist_from	billing@networksolutions.com
-whitelist_from  *fatbrain.com
-whitelist_from  *amazon.com
-whitelist_from  *amazon.co.uk
-whitelist_from  *ebay.com
-whitelist_from	*ora.com		# O'Reilly
-whitelist_from  *@walmart.com
-whitelist_from  *@bn.com
-whitelist_from  *@yahoo-inc.com
-
-###########################################################################
-# Automatic-whitelist directory, for the default directory-based whitelist
+# Automatic-whitelist directory, for the default db-based whitelist
 # backend.  By default, each user has their own, in their ~/.spamassassin
-# directory with mode 0700, but for system-wide SpamAssassin use, you may
+# directory with mode 0600, but for system-wide SpamAssassin use, you may
 # want to share this across all users; uncomment and customise the below
 # lines.  (Make sure the mode has --x bits set.)
 
-# auto_whitelist_threshold   3
+# auto_whitelist_factor   0.5
 
-# default: per-user whitelist.  (~ will be replaced by user's home dir.)
+# default: per-user whitelist:
 # auto_whitelist_path        ~/.spamassassin/auto-whitelist
-# auto_whitelist_file_mode   0700
+# auto_whitelist_file_mode   0600
 
 # use this for a system-wide whitelist:
 # auto_whitelist_path        /var/spool/spamassassin/auto-whitelist
-# auto_whitelist_file_mode   0777
+# auto_whitelist_file_mode   0666
 
 ###########################################################################
 # Default prefs values: users can override these in their 
-# ~/.spamassassin.prefs files.
+# ~/.spamassassin/user_prefs files.
 
 # How many hits before a mail is considered spam.
 required_hits           5
 
-# How many hits before a mail is automatically reported to blacklisting
-# services like Razor.  Be very careful with this; you really should manually
-# verify the spamminess of a mail before reporting it.
-auto_report_threshold   30
+# Mail using locales used in these country codes will not be marked
+# as being possibly spam in a foreign language.
+ok_locales              all
 
 # Mail using languages used in these country codes will not be marked
-# as being possibly spam in a foreign language.
-#
-ok_locales              en
+# as being possibly spam in a foreign language.  This is an expensive
+# test, so it is set to "all" so the test will not be used by default.
+ok_languages            all
 
 # Some common prefs settings can be set here, to take effect site-wide
 # unless the user override them. See the .prefs file for explanations.
 
 # rewrite_subject       1
 # report_header         0
+# subject_tag           *****SPAM*****
 # use_terse_report      0
 # defang_mime           1
 # skip_rbl_checks       0
