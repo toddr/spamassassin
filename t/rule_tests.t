@@ -1,7 +1,5 @@
 #!/usr/bin/perl
 
-# $Id: rule_tests.t,v 1.6 2002/07/22 12:19:57 jmason Exp $
-
 my $prefix = '.';
 if (-e 'test_dir') {            # running from test directory, not ..
   use lib '../lib';
@@ -54,8 +52,8 @@ foreach my $symbol ($sa->{conf}->regression_tests()) {
         my $test_type = $conf->{test_types}->{$symbol};
         next unless defined($test_type);        # score, but no test
 
-        if ($test_type == $Mail::SpamAssassin::Conf::type_head_tests ||
-            $test_type == $Mail::SpamAssassin::Conf::type_head_evals)
+        if ($test_type == Mail::SpamAssassin::Conf::TYPE_HEAD_TESTS ||
+            $test_type == Mail::SpamAssassin::Conf::TYPE_HEAD_EVALS)
         {
             my $test_string = $conf->{head_tests}->{$symbol} || $conf->{head_evals}->{$symbol};
             my ($header_name) = $test_string =~ /^(\S+)/;
@@ -69,7 +67,7 @@ foreach my $symbol ($sa->{conf}->regression_tests()) {
 
         $conf->{scores}->{$symbol} = 1;
         $msg->check();
-        ok( $msg->get_hits, ($ok_or_fail eq 'ok' ? 1 : 0),
+        ok( $msg->get_hits(), ($ok_or_fail eq 'ok' ? 1 : 0),
                 "Test for '$symbol' (type: $test_type) against '$string'" );
     }
 }

@@ -17,7 +17,6 @@ my $spamtest = Mail::SpamAssassin->new({
     rules_filename => 'rules',
     dont_copy_prefs => 1,
     local_tests_only => 1,
-    stop_at_threshold => 0,
     debug => 0,
     paranoid => 0,
 });
@@ -27,8 +26,7 @@ for($_=shift @ARGV; defined($_); $_=shift @ARGV)
 	open (STDIN, "<$_");
 	    my @msglines = (<STDIN>);
 	    my $mail = Mail::SpamAssassin::NoMailAudit->new (
-                                data => \@msglines,
-                                add_From_line => 0
+                                data => \@msglines
                          );
 
 	    my $status = $spamtest->check($mail);

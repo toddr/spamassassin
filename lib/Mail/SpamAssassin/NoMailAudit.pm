@@ -15,11 +15,14 @@
 #
 package Mail::SpamAssassin::NoMailAudit;
 
-use Mail::SpamAssassin::Message;
+use strict;
+use bytes;
 use Fcntl qw(:DEFAULT :flock);
 
+use Mail::SpamAssassin::Message;
+
 @Mail::SpamAssassin::NoMailAudit::ISA = (
-        'Mail::SpamAssassin::Message'
+  'Mail::SpamAssassin::Message'
 );
 
 # ---------------------------------------------------------------------------
@@ -32,17 +35,9 @@ sub new {
 
   $self->{is_spamassassin_wrapper_object} = 1;
   $self->{has_spamassassin_methods} = 1;
+  $self->{headers_pristine} = '';
   $self->{headers} = { };
   $self->{header_order} = [ ];
-
-  # an option: SpamAssassin can set this appropriately.
-  # undef means 'figure it out yourself'.
-  $self->{add_From_line} = $opts{add_From_line};
-
-  # default: always add it
-  if (!defined $self->{add_From_line}) {
-    $self->{add_From_line} = 1;
-  }
 
   bless ($self, $class);
 
@@ -63,6 +58,13 @@ sub new {
 
 # ---------------------------------------------------------------------------
 
+sub create_new {
+  my ($self, @args) = @_;
+  return Mail::SpamAssassin::NoMailAudit->new(@args);
+}
+
+# ---------------------------------------------------------------------------
+
 sub get_mail_object {
   my ($self) = @_;
   return $self;
@@ -74,12 +76,16 @@ sub parse_headers {
   my ($self) = @_;
   local ($_);
 
+  $self->{headers_pristine} = '';
   $self->{headers} = { };
   $self->{header_order} = [ ];
   my ($prevhdr, $hdr, $val, $entry);
 
   while (defined ($_ = shift @{$self->{textarray}})) {
-    # warn "JMD $_";
+    # absolutely unmodified!
+    $self->{headers_pristine} .= $_;
+
+    # warn "parse_headers $_";
     if (/^\r*$/) { last; }
 
     $entry = $hdr = $val = undef;
@@ -148,15 +154,23 @@ sub _get_or_create_header_object {
 # ---------------------------------------------------------------------------
 
 sub _get_header_list {
-    my ($self, $hdr) = @_;
+  my ($self, $hdr) = @_;
+
   # OK, we want to do a case-insensitive match here on the header name
   # So, first I'm going to pick up an array of the actual capitalizations used:
-  my @cap_hdrs = grep(/^$hdr$/i, keys(%{$self->{headers}}));
+  my $lchdr = lc $hdr;
+  my @cap_hdrs = grep(lc($_) eq $lchdr, keys(%{$self->{headers}}));
 
   # And now pick up all the entries into a list
   my @entries = map($self->{headers}->{$_},@cap_hdrs);
 
   return @entries;
+}
+
+sub get_pristine_header {
+  my ($self, $hdr) = @_;
+  my($ret) = $self->{headers_pristine} =~ /^(?:$hdr:\s+(.*\n(?:\s+.*\n)*))/mi;
+  return ( $ret || $self->get_header($hdr) );
 }
 
 sub get_header {
@@ -212,113 +226,7 @@ sub get_all_headers {
   my @lines = ();
   # warn "JMD".join (' ', caller);
 
-  if (!defined ($self->{add_From_line}) || $self->{add_From_line} == 1) {
-    my $from = $self->{from_line};
-    if (!defined $from) {
-      my $f = $self->get_header("From") || '';
-      chomp ($f);
-
-      #warn "$f";
-      #warn "---";
-
-      $f =~ tr/\n/ /s;                            # unwrap the line
-      $f =~ s/^\s*(.*?)\s*$/$1/;                  # and remove leading and trailing spaces
-
-      #warn "$f";
-      #warn "---";
-
-      if ($f) {
-        my $p = -1;                               # position of block opening
-        my $s = '';                               # closing block seperator; either a quote or a bracket
-        my $n = 0;                                # deepness of nesting (only for brackets)
-        for (my $i = 0; $i < length($f); $i++) {
-          my $c = substr($f, $i, 1);
-          #warn "$f, $i, $c, $p, $s, $n";
-          if ($p == -1) {
-            if ($c eq '"' or $c eq '(') {         # find next block opening
-              $s = $c eq '(' ? ')' : '"';
-              $p = $i;
-            }
-            elsif ($c eq ',') {                   # begin of next address;
-              substr($f, $i) = '';                # look at the first one only
-              last;                               # and break here
-            }
-          }
-          else {
-            if ($c eq '(') {                      # a nested block is opened
-              $n++;
-            }
-            elsif ($c eq '\\') {                  # the next character is escaped,
-              $i++;                               # so skip it
-              next;
-            }
-            elsif ($c eq $s) {                    # block closing;
-              if ($n and $s eq ')') {             # it's a nested block
-                $n--;
-                next;
-              }
-              else {                              # it's no nested block,
-                substr($f, $p, $i - $p + 1) = ''; # so remove it
-                $i = $p - 1;                      # and proceed where it started
-                $p = -1;
-                next;
-              }
-            }
-          }
-        }
-        if ($p > -1) {                            # block not closed,
-          substr($f, $p) = '';                    # so remove till the end
-        }
-      }
-      $f =~ s/^\s*(.*?)\s*$/$1/;                  # remove leading and trailing spaces again
-
-      #warn "$f";
-      #warn "---";
-
-      if ($f) {
-        my $p = index($f, '<');
-        if ($p > -1) {                            # seems like we've got angle brackets
-          substr($f, 0, $p + 1) = '';             # remove everything in front
-          $p = index($f, '>');
-          if ($p > -1) {
-            $f = substr($f, 0, $p);               # get the contents
-            if ($f =~ /\s/) {                     # address contains spaces;
-              $f = '';                            # illegal address
-            }
-          }
-          else {                                  # no closing angle bracket;
-            $f = '';                              # illegal address
-          }
-        }
-        else {                                    # no angle bracket,
-          $f =~ s/\s.*//;                         # so remove everything except the first token
-        }
-      }
-
-      #warn "$f";
-      #warn "---";
-
-      if ($f) {
-        my $p = index($f, '@');
-        if (   $p == 0                            # we either lost the local part,
-            or $p == length($f) - 1               # or the domain
-            or $p != rindex($f, '@')) {           # or it contains more than one @;
-          $f = '';                                # illegal address anyway
-        }
-      }
-
-      unless ($f) {                               # we lost the address;
-        $f = 'spamassassin@localhost';            # use a default one
-      }
-
-      #warn "$f";
-      #warn "---";
-
-      $from = "From $f  ".(scalar localtime(time))."\n";
-    }
-    unshift (@lines, $from);
-  }
-
+  push(@lines, $self->{from_line}) if ( defined $self->{from_line} );
   foreach my $hdrcode (@{$self->{header_order}}) {
     $hdrcode =~ /^([^:]+):(\d+)$/ or next;
 
@@ -345,13 +253,9 @@ sub replace_header {
   # Get all the headers that might match
   my @entries = $self->_get_header_list($hdr);
 
-  if (scalar(@entries) < 1) {
-    return $self->put_header($hdr, $text);
-  }
-
-  foreach my $entry (@entries)
-  {
-      if($entry->{count} > 0) { $entry->{0} = $text; return; }
+  # remove all of them if there's more than 1 line
+  if (scalar(@entries) >= 1) {
+    $self->delete_header ($hdr);
   }
 
   return $self->put_header($hdr, $text);
@@ -385,10 +289,29 @@ sub replace_body {
 # ---------------------------------------------------------------------------
 # bonus, not-provided-in-Mail::Audit methods.
 
+sub get_pristine {
+  my ($self) = @_;
+  return join ('', $self->{headers_pristine}, @{ $self->{textarray} });
+}
+
 sub as_string {
   my ($self) = @_;
-  return join ('', $self->get_all_headers()) . "\n" .
-                join ('', @{$self->get_body()});
+  return join ('', $self->get_all_headers(), "\n",
+                @{$self->get_body()});
+}
+
+sub replace_original_message {
+  my ($self, $data) = @_;
+
+  if (ref $data eq 'ARRAY') {
+    $self->{textarray} = $data;
+  } elsif (ref $data eq 'GLOB') {
+    if (defined fileno $data) {
+      $self->{textarray} = [ <$data> ];
+    }
+  }
+
+  $self->parse_headers();
 }
 
 # ---------------------------------------------------------------------------
@@ -424,25 +347,6 @@ sub accept {
   my $self = shift;
   my $file = shift;
 
-  # determine location of mailspool
-  if (!defined $file) {
-  if ($ENV{'MAIL'}) {
-    $file = $ENV{'MAIL'};
-  } elsif (-d "/var/spool/mail/") {
-    $file = "/var/spool/mail/" . getpwuid($>);
-  } elsif (-d "/var/mail/") {
-    $file = "/var/mail/" . getpwuid($>);
-  } else {
-    die('Could not determine mailspool location for your system.  Try setting $MAIL in the environment.');
-  }
-  }
-
-  # some bits of code from Mail::Audit here:
-
-  if (exists $self->{accept}) {
-    return $self->{accept}->();
-  }
-
   # we don't support maildir or qmail here yet. use the real Mail::Audit
   # for those.
 
@@ -469,7 +373,7 @@ sub accept {
       }
 
       flock(MBOX, LOCK_EX) or warn "failed to lock $file: $!";
-      print MBOX $self->as_string();
+      print MBOX $self->as_string()."\n";
       flock(MBOX, LOCK_UN) or warn "failed to unlock $file: $!";
       close MBOX;
 
@@ -492,7 +396,7 @@ sub dotlock_lock {
   my $lockfile = $file.".lock";
   my $locktmp = $file.".lk.$$.".time();
   my $gotlock = 0;
-  my $retrylimit = 10;
+  my $retrylimit = 30;
 
   if (!sysopen (LOCK, $locktmp, O_WRONLY | O_CREAT | O_EXCL, 0644)) {
     #die "lock $file failed: create $locktmp: $!";
@@ -503,9 +407,10 @@ sub dotlock_lock {
   print LOCK "$$\n";
   close LOCK or die "lock $file failed: write to $locktmp: $!";
 
-  for ($retries = 0; $retries < $retrylimit; $retries++) {
+  for (my $retries = 0; $retries < $retrylimit; $retries++) {
     if ($retries > 0) {
-      my $sleeptime = $retries > 12 ? 60 : 5*$retries;
+      my $sleeptime = 2*$retries;
+      if ($sleeptime > 60) { $sleeptime = 60; }         # max 1 min
       sleep ($sleeptime);
     }
 
@@ -516,7 +421,7 @@ sub dotlock_lock {
     if (!defined $tmpstat[3]) { die "lstat $locktmp failed"; }
 
     # sanity: see if the link() succeeded
-    @lkstat = lstat ($lockfile);
+    my @lkstat = lstat ($lockfile);
     if (!defined $lkstat[3]) { next; }	# link() failed
 
     # sanity: if the lock succeeded, the dev/ino numbers will match
@@ -595,6 +500,7 @@ sub _proxy_to_mail_audit {
 # emergency.
 sub finish {
   my $self = shift;
+  delete $self->{headers_pristine};
   delete $self->{textarray};
   foreach my $key (keys %{$self->{headers}}) {
     delete $self->{headers}->{$key};

@@ -4,7 +4,9 @@
 package main;
 
 use Cwd;
+use Config;
 use File::Path;
+use File::Copy;
 
 # Set up for testing. Exports (as global vars):
 # out: $home: $HOME env variable
@@ -14,11 +16,22 @@ use File::Path;
 sub sa_t_init {
   my $tname = shift;
 
+  my $perl_path;
+  if ($config{PERL_PATH}) {
+    $perl_path = $config{PERL_PATH};
+  }
+  elsif ($^X =~ m|^/|) {
+    $perl_path = $^X;
+  }
+  else {
+    $perl_path = $Config{perlpath};
+    $perl_path =~ s|/[^/]*$|/$^X|;
+  }
   $scr = $ENV{'SCRIPT'};
-  $scr ||= "../spamassassin";
+  $scr ||= "$perl_path -T -w ../spamassassin";
 
   $spamd = $ENV{'SPAMD_SCRIPT'};
-  $spamd ||= "../spamd/spamd -x";
+  $spamd ||= "$perl_path -T -w ../spamd/spamd -x";
 
   $spamc = $ENV{'SPAMC_SCRIPT'};
   $spamc ||= "../spamd/spamc";
@@ -26,13 +39,25 @@ sub sa_t_init {
   $spamdport = 48373;		# whatever
   $spamd_cf_args = "-C ../rules";
 
-  $scr_cf_args = "-C ../rules -p ../rules/user_prefs.template";
+  $scr_cf_args = "-C ../rules -p log/test_default.cf";
   $scr_pref_args = "";
   $scr_test_args = "";
 
   (-f "t/test_dir") && chdir("t");        # run from ..
   rmtree ("log");
   mkdir ("log", 0755);
+
+  copy ("../rules/user_prefs.template", "log/test_default.cf")
+	or die "user prefs copy failed";
+
+  open (PREFS, ">>log/test_default.cf");
+  print PREFS "
+    bayes_path ./log/user_state/bayes
+    auto_whitelist_path ./log/user_state/auto-whitelist
+    ";
+  close PREFS;
+
+  mkdir("log/user_state",0755);
 
   $home = $ENV{'HOME'};
   $home ||= $ENV{'WINDIR'} if (defined $ENV{'WINDIR'});
@@ -93,19 +118,13 @@ sub sarun {
   1;
 }
 
-sub sdrun {
-  my $sdargs = shift;
+sub spamcrun {
   my $args = shift;
   my $read_sub = shift;
-
-  rmtree ("log/outputdir.tmp"); # some tests use this
-  mkdir ("log/outputdir.tmp", 0755);
 
   if (defined $ENV{'SC_ARGS'}) {
     $args = $ENV{'SC_ARGS'} . " ". $args;
   }
-
-  start_spamd ($sdargs);
 
   my $spamcargs;
   if($args !~ /(?:-p\s*[0-9]+|-o)/)
@@ -122,9 +141,45 @@ sub sdrun {
   system ("$spamcargs > log/$testname.out");
 
   $sa_exitcode = ($?>>8);
-  if ($sa_exitcode != 0) { return undef; }
-  &checkfile ("$testname.out", $read_sub);
+  if ($sa_exitcode != 0) { stop_spamd(); return undef; }
 
+  %found = ();
+  %found_anti = ();
+  &checkfile ("$testname.out", $read_sub);
+}
+
+sub spamcrun_background {
+  my $args = shift;
+  my $read_sub = shift;
+
+  if (defined $ENV{'SC_ARGS'}) {
+    $args = $ENV{'SC_ARGS'} . " ". $args;
+  }
+
+  my $spamcargs;
+  if($args !~ /(?:-p\s*[0-9]+|-o)/)
+  {
+    $spamcargs = "$spamc -p $spamdport $args";
+  }
+  else
+  {
+    $spamcargs = "$spamc $args";
+  }
+  $spamcargs =~ s!/!\\!g if ($^O =~ /^MS(DOS|Win)/i);
+
+  print ("\t$spamcargs &\n");
+  system ("$spamcargs > log/$testname.bg &") and return 0;
+
+  1;
+}
+
+sub sdrun {
+  my $sdargs = shift;
+  my $args = shift;
+  my $read_sub = shift;
+
+  start_spamd ($sdargs);
+  spamcrun ($args, $read_sub);
   stop_spamd ();
 
   1;
@@ -132,6 +187,11 @@ sub sdrun {
 
 sub start_spamd {
   my $sdargs = shift;
+
+  return if (defined($spamd_pid) && $spamd_pid > 0);
+
+  rmtree ("log/outputdir.tmp"); # some tests use this
+  mkdir ("log/outputdir.tmp", 0755);
 
   if (defined $ENV{'SD_ARGS'}) {
     $sdargs = $ENV{'SD_ARGS'} . " ". $sdargs;
@@ -158,10 +218,13 @@ sub start_spamd {
   $spamd_pid = 0;
   my $retries = 20;
   while ($spamd_pid <= 0) {
+    my $spamdlog = '';
+
     if (open (IN, "<log/$testname.spamd")) {
       while (<IN>) {
 	/Address already in use/ and $retries = 0;
 	/server pid: (\d+)/ and $spamd_pid = $1;
+	$spamdlog .= $_;
       }
       close IN;
       last if ($spamd_pid);
@@ -169,7 +232,7 @@ sub start_spamd {
 
     sleep 2;
     if ($retries-- <= 0) {
-      warn "spamd start failed";
+      warn "spamd start failed: log: $spamdlog";
       warn "\n\nMaybe you need to kill a running spamd process?\n\n";
       return 0;
     }
@@ -179,7 +242,23 @@ sub start_spamd {
 }
 
 sub stop_spamd {
-  print ("Killed ",kill (15, $spamd_pid)," spamd instances\n");
+  if ( $spamd_pid <= 1) {
+    print ("Invalid spamd pid: $spamd_pid. Spamd not started/crashed?\n");
+    return 0;
+  } else {
+    my $killed = kill (15, $spamd_pid);
+    print ("Killed $killed spamd instances\n");
+
+    # wait for it to exit, before returning.
+    for my $waitfor (0 .. 5) {
+      if (kill (0, $spamd_pid) == 0) { last; }
+      print ("Waiting for spamd at pid $spamd_pid to exit...\n");
+      sleep 1;
+    }
+
+    $spamd_pid = 0;
+    return $killed;
+  }
 }
 
 # ---------------------------------------------------------------------------

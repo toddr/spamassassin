@@ -1,37 +1,79 @@
-#
-
 package Mail::SpamAssassin::Dns;
 1;
 
 package Mail::SpamAssassin::PerMsgStatus;
 
 use Mail::SpamAssassin::Conf;
+use File::Spec;
 use IO::Socket;
 use IPC::Open2;
-use Carp;
+use POSIX ":sys_wait_h";        # sorry Craig ;)
+
 use strict;
+use bytes;
+use Carp;
 
 use vars qw{
-	$KNOWN_BAD_DIALUP_RANGES $IP_IN_RESERVED_RANGE
-	@EXISTING_DOMAINS $IS_DNS_AVAILABLE $VERSION
+  $KNOWN_BAD_DIALUP_RANGES $IP_IN_RESERVED_RANGE
+  @EXISTING_DOMAINS $IS_DNS_AVAILABLE $VERSION
 };
 
-@EXISTING_DOMAINS = qw{spamassassin.org
-                       kernel.org
-                       slashdot.org
-                       google.com
-                       google.de
-                       microsoft.com
-                       yahoo.com
-                       yahoo.de
-                       amazon.com
-                       amazon.de
-                       nytimes.com
-                       leo.org
-                       gwdg.de
-                    };
+# don't lookup SpamAssassin.org -- use better-connected sites
+# instead ;)
+@EXISTING_DOMAINS = qw{
+  kernel.org
+  slashdot.org
+  google.com
+  google.de
+  microsoft.com
+  yahoo.com
+  yahoo.de
+  amazon.com
+  amazon.de
+  nytimes.com
+  leo.org
+  gwdg.de
+};
 
-$IP_IN_RESERVED_RANGE = undef;
+# Initialize a regexp for reserved IPs, i.e. ones that could be
+# used inside a company and be the first or second relay hit by
+# a message. Some companies use these internally and translate
+# them using a NAT firewall. These are listed in the RBL as invalid
+# originators -- which is true, if you receive the mail directly
+# from them; however we do not, so we should ignore them.
+# cf. <http://www.iana.org/assignments/ipv4-address-space>,
+#     <http://duxcw.com/faq/network/privip.htm>,
+#     <http://duxcw.com/faq/network/autoip.htm>
+#
+# Last update
+#   2002-08-24 Malte S. Stretz - added 172.16/12, 169.254/16
+#   2002-08-23 Justin Mason - added 192.168/16
+#   2002-08-12 Matt Kettler - mail to SpamAssassin-devel
+#              msgid:<5.1.0.14.0.20020812211512.00a33cc0@192.168.50.2>
+#
+$IP_IN_RESERVED_RANGE = qr{^(?:
+  192\.168|                        # 192.168/16:              Private Use
+  10|                              # 10/8:                    Private Use
+  172\.(?:1[6-9]|2[0-9]|3[01])|    # 172.16-172.31/16:        Private Use
+  169\.254|                        # 169.254/16:              Private Use (APIPA)
+  127|                             # 127/8:                   Private Use (localhost)
+
+  [01257]|                         # 000-002/8, 005/8, 007/8: Reserved
+  2[37]|                           # 023/8, 027/8:            Reserved
+  3[179]|                          # 031/8, 037/8, 039/8:     Reserved
+  4[12]|                           # 041/8, 042/8:            Reserved
+  5[89]|                           # 058/8, 059/8:            Reserved
+  60|                              # 060/8:                   Reserved
+  7[0-9]|                          # 070-079/8:               Reserved
+  8[2-9]|                          # 082
+  9[0-9]|                          #  -
+  1[01][0-9]|                      #  -
+  12[0-6]|                         # 126/8:                   Reserved
+  197|                             # 197/8:                   Reserved
+  22[23]|                          # 222/8, 223/8:            Reserved
+  24[0-9]|                         # 240-
+  25[0-5]|                         # 255/8:                   Reserved
+)\.}x;
 
 $IS_DNS_AVAILABLE = undef;
 
@@ -56,14 +98,12 @@ BEGIN {
     require Net::DNS;
     require Net::DNS::Resolver;
   };
-
-  # Use Razor2 if it's available, Razor1 otherwise
   eval {
     require Razor2::Client::Agent;
-  } or eval {
+  };
+  eval {
     require Razor::Client;
   };
-
   eval {
     require MIME::Base64;
   };
@@ -96,20 +136,21 @@ sub do_rbl_lookup {
     return 0;
   } else {
     timelog("RBL -> Waiting for result on $dom", "rbl", 1);
-    $socket=$self->{dnscache}->{rbl}->{$dom}->{socket};
+    $socket=\$self->{dnscache}->{rbl}->{$dom}->{socket};
     
-    while (not $self->{res}->bgisready($socket)) {
+    while (not $self->{res}->bgisready($$socket)) {
       last if (time - $self->{dnscache}->{rbl}->{$dom}->{time} > $maxwait);
       sleep 1;
     }
 
-    if (not $self->{res}->bgisready($socket)) {
+    if (not $self->{res}->bgisready($$socket)) {
       timelog("RBL -> Timeout on $dom", "rbl", 2);
       dbg("Query for $dom timed out after $maxwait seconds", "rbl", -1);
+      undef($$socket);
       return 0;
     } else {
-      my $packet = $self->{res}->bgread($socket);
-      undef($socket);
+      my $packet = $self->{res}->bgread($$socket);
+      undef($$socket);
       foreach $_ ($packet->answer) {
 	dbg("Query for $dom yielded: ".$_->rdatastr, "rbl", -2);
 	if ($_->type eq "A") {
@@ -167,164 +208,52 @@ sub do_rbl_lookup {
   return 0;
 }
 
-# Initialize a regexp for reserved IPs, i.e. ones that could be
-# used inside a company and be the first or second relay hit by
-# a message. Some companies use these internally and translate
-# them using a NAT firewall. These are listed in the RBL as invalid
-# originators -- which is true, if you receive the mail directly
-# from them; however we do not, so we should ignore them.
-#
-sub init_rbl_check_reserved_ips {
-  return if defined ($IP_IN_RESERVED_RANGE);
-
-  $IP_IN_RESERVED_RANGE = '^(?:';
-  foreach my $top8bits (qw(
-                    [012]
-                    5
-                    7
-                    10
-                    23
-                    27
-                    31
-                    37
-                    39
-                    41
-                    42
-                    58
-                    59
-                    60
-                    6[5-9]
-                    [789][0-9]
-                    1[01][0-9]
-                    12[0-7]
-                    197
-                    21[7-9]
-                    22[0-3]
-                    24[0-9]
-                    25[0-5]
-                  ))
-  {
-    $IP_IN_RESERVED_RANGE .= $top8bits . '\.|';
-  }
-  $IP_IN_RESERVED_RANGE =~ s/\|$/\)/;
-}
-
 ###########################################################################
 
-sub is_razor_available {
+sub is_razor1_available {
   my ($self) = @_;
 
   if ($self->{main}->{local_tests_only}) {
-    dbg ("local tests only, ignoring Razor", "razor", -1);
+    dbg ("local tests only, ignoring Razor1", "razor", -1);
     return 0;
   }
+  if (!$self->{conf}->{use_razor1}) { return 0; }
 
-  # Use Razor2 if it's available, Razor1 otherwise
-eval { require Razor2::Client::Agent; };
-if ($@) {
-  dbg("Razor2 is not available", "razor", -1);
-}
-else {
-  dbg("Razor2 is available", "razor", -1);
-  return 1;
-}
-
-eval { require Razor::Client; };
+  eval { require Razor::Client; };
   
   if ($@) {
-    dbg ("Razor is not available", "razor", -1);
+    dbg ("Razor1 is not available", "razor", -1);
     return 0;
   }
   else {
-    dbg ("Razor is available", "razor", -1);
+    dbg ("Razor1 is available", "razor", -1);
     return 1;
   }
 }
 
-sub razor_lookup {
+sub razor1_lookup {
   my ($self, $fulltext) = @_;
   my $timeout=$self->{conf}->{razor_timeout};
 
   if ($self->{main}->{local_tests_only}) {
-    dbg ("local tests only, ignoring Razor", "razor", -1);
+    dbg ("local tests only, ignoring Razor1", "razor", -1);
     return 0;
   }
+  if (!$self->{conf}->{use_razor1}) { return 0; }
 
-  timelog("Razor -> Starting razor test ($timeout secs max)", "razor", 1);
+  timelog("Razor1 -> Starting razor test ($timeout secs max)", "razor", 1);
   
   my $response = undef;
 
   # razor also debugs to stdout. argh. fix it to stderr...
-  if ($Mail::SpamAssassin::DEBUG) {
+  if ($Mail::SpamAssassin::DEBUG->{enabled}) {
     open (OLDOUT, ">&STDOUT");
     open (STDOUT, ">&STDERR");
   }
 
-  my $oldslash = $/;
+  $self->enter_helper_run_mode();
 
-  # Use Razor2 if it's available
-  eval { require Razor2::Client::Agent; };
-  if ( !$@ ) {
-    eval {
-      local ($^W) = 0;    # argh, warnings in Razor
-
-      local $SIG{ALRM} = sub { die "alarm\n" };
-      alarm $timeout;
-
-      my $rc =
-        Razor2::Client::Agent->new('razor-check')
-        ;                 # everything's in the module!
-
-      if ($rc) {
-        my %opt = (
-            debug      => ($Mail::SpamAssassin::DEBUG->{enabled} and
-                 $Mail::SpamAssassin::DEBUG->{razor} < -2), 
-	    foreground => 1,
-            config     => $self->{conf}->{razor_config}
-        );
-        $rc->{opt} = \%opt;
-        $rc->do_conf() or die $rc->errstr;
-
-        my @msg     = ($fulltext);
-        my $objects = $rc->prepare_objects( \@msg )
-          or die "error in prepare_objects";
-        $rc->get_server_info() or die $rc->errprefix("checkit");
-        my $sigs = $rc->compute_sigs($objects)
-          or die "error in compute_sigs";
-
-        # 
-        # if mail is whitelisted, its not spam, so abort.
-        #   
-        if ( $rc->local_check( $objects->[0] ) ) {
-          $response = 0;
-        }
-        else {
-          $rc->connect() or die $rc->errprefix("checkit");
-          $rc->check($objects) or die $rc->errprefix("checkit");
-          $rc->disconnect() or die $rc->errprefix("checkit");
-          $response = $objects->[0]->{spam};
-        }
-      }
-      else {
-        warn "undefined Razor2::Client::Agent\n";
-      }
-  
-      alarm 0;
-    };
-
-    alarm 0;    # just in case
-  
-    if ($@) {
-      $response = undef;
-      if ( $@ =~ /alarm/ ) {
-        dbg("razor2 check timed out after $timeout secs.");
-        }
-        else {
-        warn("razor2 check skipped: $! $@");
-        }
-      }
-  }
-  else {
+  {
     eval {
       require Razor::Client;
       require Razor::Agent;
@@ -358,7 +287,7 @@ sub razor_lookup {
         }
       }
       else {
-          warn "Problem while trying to load Razor: $! $Razor::Client::errstr";
+          warn "Problem while trying to load Razor1: $! $Razor::Client::errstr";
       }
       
       alarm 0;
@@ -370,61 +299,220 @@ sub razor_lookup {
       $response = undef;
       if ($@ =~ /alarm/) {
         dbg ("razor check timed out after $timeout secs.", "razor", -1);
-        timelog("Razor -> interrupted after $timeout secs", "razor", 2);
+        timelog("Razor1 -> interrupted after $timeout secs", "razor", 2);
       } else {
         warn ("razor check skipped: $! $@");
       }
     }
   }
 
-  $/ = $oldslash;		# argh! pollution!
+  $self->leave_helper_run_mode();
 
   # razor also debugs to stdout. argh. fix it to stderr...
-  if ($Mail::SpamAssassin::DEBUG) {
+  if ($Mail::SpamAssassin::DEBUG->{enabled}) {
     open (STDOUT, ">&OLDOUT");
     close OLDOUT;
   }
 
-  if ((defined $response) && ($response+0)) { 
-      timelog("Razor -> Finished razor test: confirmed spam", "razor", 2);
-      return 1; 
+  if ((defined $response) && ($response+0)) {
+      timelog("Razor1 -> Finished razor test: confirmed spam", "razor", 2);
+      return 1;
   }
-  timelog("Razor -> Finished razor test: not known spam", "razor", 2);
+  timelog("Razor1 -> Finished razor test: not known spam", "razor", 2);
   return 0;
 }
 
+###########################################################################
+
+sub is_razor2_available {
+  my ($self) = @_;
+
+  if ($self->{main}->{local_tests_only}) {
+    dbg ("local tests only, ignoring Razor2", "razor", -1);
+    return 0;
+  }
+  if (!$self->{conf}->{use_razor2}) { return 0; }
+
+  # Use Razor2 if it's available, Razor1 otherwise
+  eval { require Razor2::Client::Agent; };
+  if ($@) {
+    dbg("Razor2 is not available", "razor", -1);
+    return 0;
+  }
+  else {
+    dbg("Razor2 is available", "razor", -1);
+    return 1;
+  }
+}
+
+sub razor2_lookup {
+  my ($self, $fulltext) = @_;
+  my $timeout=$self->{conf}->{razor_timeout};
+
+  # Set the score for the ranged checks
+  $self->{razor2_cf_score} = 0;
+  return $self->{razor2_result} if ( defined $self->{razor2_result} );
+  $self->{razor2_result} = 0;
+
+  if ($self->{main}->{local_tests_only}) {
+    dbg ("local tests only, ignoring Razor2", "razor", -1);
+    return 0;
+  }
+  if (!$self->{conf}->{use_razor2}) { return 0; }
+
+  timelog("Razor2 -> Starting razor test ($timeout secs max)", "razor", 1);
+  
+  my $response = undef;
+
+  # razor also debugs to stdout. argh. fix it to stderr...
+  if ($Mail::SpamAssassin::DEBUG->{enabled}) {
+    open (OLDOUT, ">&STDOUT");
+    open (STDOUT, ">&STDERR");
+  }
+
+  $self->enter_helper_run_mode();
+
+    eval {
+      local ($^W) = 0;    # argh, warnings in Razor
+      local %ENV;
+
+      require Razor2::Client::Agent;
+
+      local $SIG{ALRM} = sub { die "alarm\n" };
+      alarm $timeout;
+
+      my $rc =
+        Razor2::Client::Agent->new('razor-check')
+        ;                 # everything's in the module!
+
+      if ($rc) {
+        my %opt = (
+            debug      => ($Mail::SpamAssassin::DEBUG->{enabled} and
+                 $Mail::SpamAssassin::DEBUG->{razor} < -2), 
+	    foreground => 1,
+            config     => $self->{conf}->{razor_config}
+        );
+        $rc->{opt} = \%opt;
+        $rc->do_conf() or die $rc->errstr;
+
+	my $tmptext = $$fulltext;
+	my @msg = (\$tmptext);
+
+        my $objects = $rc->prepare_objects( \@msg )
+          or die "error in prepare_objects";
+        $rc->get_server_info() or die $rc->errprefix("checkit");
+
+	# let's reset the alarm since get_server_info() calls
+	# nextserver() which calls discover() which very likely will
+	# reset the alarm for us ... how polite.  :(  
+	alarm $timeout;
+
+        my $sigs = $rc->compute_sigs($objects)
+          or die "error in compute_sigs";
+
+        # 
+        # if mail is whitelisted, its not spam, so abort.
+        #   
+        if ( $rc->local_check( $objects->[0] ) ) {
+          $response = 0;
+        }
+        else {
+          if (!$rc->connect()) {
+            # provide a better error message when servers are unavailable,
+            # than "Bad file descriptor Died".
+            die "could not connect to any servers\n";
+          }
+          $rc->check($objects) or die $rc->errprefix("checkit");
+          $rc->disconnect() or die $rc->errprefix("checkit");
+
+	  # if we got here, we're done doing remote stuff, abort the alert
+	  alarm 0;
+
+	  # so $objects->[0] is the first (only) message, and ->{spam} is a general yes/no
+          $self->{razor2_result} = $response = $objects->[0]->{spam} || 0;
+	  # good for debugging, but leave this off!
+	  #use Data::Dumper;
+	  #print Dumper($objects),"\n";
+
+	  # ->{p} is for each part of the message
+	  # so go through each part, taking the highest cf we find
+	  # of any part that isn't contested (ct).  This helps avoid false
+	  # positives.
+	  foreach my $cf ( @{$objects->[0]->{p}} ) {
+	    if ( exists $cf->{resp} ) {
+	      my $tmpcf = $cf->{resp}->[0]->{cf}; # Part confidence
+	      my $tmpct = $cf->{resp}->[0]->{ct}; # Part contested?
+	      dbg("Found Razor2 part: ct? ".(defined $tmpct?$tmpct:"0").", cf=".(defined $tmpcf?$tmpcf:"0"));
+	      $self->{razor2_cf_score} = $tmpcf if ( !defined $tmpct && defined $tmpcf && $tmpcf > $self->{razor2_cf_score} );
+	    }
+	  }
+        }
+      }
+      else {
+        warn "undefined Razor2::Client::Agent\n";
+      }
+  
+      alarm 0;
+    };
+
+    alarm 0;    # just in case
+  
+    if ($@) {
+      $response = undef;
+      if ( $@ =~ /alarm/ ) {
+          dbg("razor2 check timed out after $timeout secs.");
+        } elsif ($@ =~ /(?:could not connect|network is unreachable)/) {
+          # make this a dbg(); SpamAssassin will still continue,
+          # but without Razor checking.  otherwise there may be
+          # DSNs and errors in syslog etc., yuck
+          dbg("razor2 check could not connect to any servers");
+        } else {
+          warn("razor2 check skipped: $! $@");
+        }
+      }
+
+  $self->leave_helper_run_mode();
+
+  # razor also debugs to stdout. argh. fix it to stderr...
+  if ($Mail::SpamAssassin::DEBUG->{enabled}) {
+    open (STDOUT, ">&OLDOUT");
+    close OLDOUT;
+  }
+
+  dbg("Razor2 results: spam? ".$self->{razor2_result}."  highest cf score: ".$self->{razor2_cf_score});
+
+  if (defined $response && $response) {
+      timelog("Razor2 -> Finished razor test: confirmed spam", "razor", 2);
+      return 1;
+  }
+  timelog("Razor2 -> Finished razor test: not known spam", "razor", 2);
+  return 0;
+}
+
+###########################################################################
+
 sub is_dcc_available {
   my ($self) = @_;
-  my (@resp);
 
   if ($self->{main}->{local_tests_only}) {
     dbg ("local tests only, ignoring DCC");
     return 0;
   }
+  if (!$self->{conf}->{use_dcc}) { return 0; }
 
-# patch from Ryan Cleary: a pipe open() doesn't allow for you to easily check
-# whether the command succeeded, so my patch first calls system(), then only
-# does an open() if the system() succeeds.  (
-# http://www.hughes-family.org/bugzilla/show_bug.cgi?id=507 )
-#
-  if (system("dccproc -V >/dev/null 2>&1")) {
-    dbg ("DCC is not available: system failed");
+  my $dccproc = $self->{conf}->{dcc_path} || '';
+  unless ($dccproc) {
+    $dccproc = Mail::SpamAssassin::Util::find_executable_in_env_path('dccproc');
+    if ($dccproc) { $self->{conf}->{dcc_path} = $dccproc; }
+  }
+  unless ($dccproc && -x $dccproc) {
+    dbg ("DCC is not available: dccproc not found");
     return 0;
   }
 
-  # jm: this could still fail
-  if (!open(DCCHDL, "dccproc -V 2>&1 |")) {
-    dbg ("DCC is not available: open failed");
-    return 0;
-  }
-  
-  @resp = <DCCHDL>;
-  close DCCHDL;
-  dbg ("DCC is available: ".join(" ", @resp));
+  dbg ("DCC is available: ".$self->{conf}->{dcc_path});
   return 1;
 }
-
-use Symbol qw(gensym);
 
 sub dcc_lookup {
   my ($self, $fulltext) = @_;
@@ -442,34 +530,38 @@ sub dcc_lookup {
     dbg ("local tests only, ignoring DCC");
     return 0;
   }
+  if (!$self->{conf}->{use_dcc}) { return 0; }
 
   timelog("DCC -> Starting test ($timeout secs max)", "dcc", 1);
+  $self->enter_helper_run_mode();
+
+  # use a temp file here -- open2() is unreliable, buffering-wise,
+  # under spamd. :(
+  my $tmpf = $self->create_fulltext_tmpfile($fulltext);
 
   eval {
-    my ($dccin, $dccout, $pid);
-
     local $SIG{ALRM} = sub { die "alarm\n" };
     local $SIG{PIPE} = sub { die "brokenpipe\n" };
 
     alarm($timeout);
 
-    $dccin = gensym();
-    $dccout = gensym();
+    # Note: not really tainted, these both come from system conf file.
+    my $path = Mail::SpamAssassin::Util::untaint_file_path ($self->{conf}->{dcc_path});
+    $self->{conf}->{dcc_options} =~ /^([^\;\'\"\0]+)$/;
+    my $opts = $1;
 
-    $pid = open2($dccout, $dccin, 'dccproc -H '.$self->{conf}->{dcc_options}.' 2>&1');
+    my $pid = open(DCC, join(' ', $path, '-H',
+				$opts, '< \''.$tmpf.'\' 2>&1 |'));
+    $response = <DCC>;
+    close DCC;
 
-    print $dccin $$fulltext;
-    
-    close ($dccin);
-
-    $response = <$dccout>;
-        
     dbg("DCC: got response: $response");
 
-    waitpid ($pid, 0);
-
     alarm(0);
+    waitpid ($pid, 0);
   };
+
+  $self->leave_helper_run_mode();
 
   if ($@) {
     $response = undef;
@@ -488,10 +580,18 @@ sub dcc_lookup {
     }
   }
 
-  if ($response !~ /^X-DCC/) {
+  if (!defined $response || $response !~ /^X-DCC/) {
     dbg ("DCC -> check failed - no X-DCC returned (did you create a map file?): $response");
     timelog("dcc check failed", "dcc", 2);
     return 0;
+  }
+
+  if ($self->{conf}->{dcc_add_header}) {
+    if ($response =~ /^(X-DCC.*): (.*)$/) {
+      $left  = $1;
+      $right = $2;
+      $self->{headers_to_add}->{$left} = $right;
+    }
   }
  
   $response =~ s/many/999999/ig;
@@ -507,14 +607,6 @@ sub dcc_lookup {
     $count{fuz2} = $1+0;
   }
 
-  if ($self->{conf}->{dcc_add_header}) {
-    if ($response =~ /^(X-DCC.*): (.*)$/) {
-      $left  = $1;
-      $right = $2;
-      $self->{msg}->put_header($left, $right);
-    }
-  }
-
   if ($count{body} >= $self->{conf}->{dcc_body_max} || $count{fuz1} >= $self->{conf}->{dcc_fuz1_max} || $count{fuz2} >= $self->{conf}->{dcc_fuz2_max}) {
     dbg ("DCC: Listed! BODY: $count{body} of $self->{conf}->{dcc_body_max} FUZ1: $count{fuz1} of $self->{conf}->{dcc_fuz1_max} FUZ2: $count{fuz2} of $self->{conf}->{dcc_fuz2_max}");
     timelog("DCC -> got hit", "dcc", 2);
@@ -524,6 +616,121 @@ sub dcc_lookup {
   timelog("DCC -> no match", "dcc", 2);
   return 0;
 }
+
+sub is_pyzor_available {
+  my ($self) = @_;
+
+  if ($self->{main}->{local_tests_only}) {
+    dbg ("local tests only, ignoring Pyzor");
+    return 0;
+  }
+  if (!$self->{conf}->{use_pyzor}) { return 0; }
+
+  my $pyzor = $self->{conf}->{pyzor_path} || '';
+  unless ($pyzor) {
+    $pyzor = Mail::SpamAssassin::Util::find_executable_in_env_path('pyzor');
+    if ($pyzor) { $self->{conf}->{pyzor_path} = $pyzor; }
+  }
+  unless ($pyzor && -x $pyzor) {
+    dbg ("Pyzor is not available: pyzor not found");
+    return 0;
+  }
+
+  dbg ("Pyzor is available: ".$self->{conf}->{pyzor_path});
+  return 1;
+}
+
+sub pyzor_lookup {
+  my ($self, $fulltext) = @_;
+  my $response = undef;
+  my $pyzor_count;
+  my $pyzor_whitelisted;
+  my $timeout=$self->{conf}->{pyzor_timeout};
+
+  $pyzor_count = 0;
+  $pyzor_whitelisted = 0;
+
+  if ($self->{main}->{local_tests_only}) {
+    dbg ("local tests only, ignoring Pyzor");
+    return 0;
+  }
+  if (!$self->{conf}->{use_pyzor}) { return 0; }
+
+  timelog("Pyzor -> Starting test ($timeout secs max)", "pyzor", 1);
+  $self->enter_helper_run_mode();
+
+  # use a temp file here -- open2() is unreliable, buffering-wise,
+  # under spamd. :(
+  my $tmpf = $self->create_fulltext_tmpfile($fulltext);
+
+  eval {
+    local $SIG{ALRM} = sub { die "alarm\n" };
+    local $SIG{PIPE} = sub { die "brokenpipe\n" };
+
+    alarm($timeout);
+
+    # Note: not really tainted, this comes from system conf file.
+    my $path = Mail::SpamAssassin::Util::untaint_file_path ($self->{conf}->{pyzor_path});
+
+    my $pid = open(PYZOR, join(' ', $path, 'check < \''.$tmpf.'\' 2>&1 |'));
+    $response = <PYZOR>;
+    close PYZOR;
+    dbg("Pyzor: got response: $response");
+
+    alarm(0);
+    waitpid ($pid, 0);
+  };
+
+  $self->leave_helper_run_mode();
+
+  if ($@) {
+    $response = undef;
+    if ($@ =~ /alarm/) {
+      dbg ("Pyzor check timed out after 10 secs.");
+      timelog("Pyzor -> interrupted after $timeout secs", "pyzor", 2);
+      return 0;
+    } elsif ($@ =~ /brokenpipe/) {
+      dbg ("Pyzor -> check failed - Broken pipe.");
+      timelog("Pyzor check failed, broken pipe", "pyzor", 2);
+      return 0;
+    } else {
+      warn ("Pyzor -> check skipped: $! $@");
+      timelog("Pyzor check skipped", "pyzor", 2);
+      return 0;
+    }
+  }
+
+  # made regexp a little more forgiving (jm)
+  if ($response =~ /^\S+\t.*?\t(\d+)\t(\d+)\s*$/) {
+    $pyzor_whitelisted = $2+0;
+    if ($pyzor_whitelisted == 0) {
+      $pyzor_count = $1+0;
+    }
+
+  } else {
+    # warn on failures to parse (jm)
+    dbg ("Pyzor: couldn't grok response \"$response\"");
+  }
+
+  # moved this around a bit; no point in testing RE twice (jm)
+  if ($self->{conf}->{pyzor_add_header}) {
+    if ($pyzor_whitelisted) {
+      $self->{headers_to_add}->{'X-Pyzor'} = "Whitelisted.";
+    } else {
+      $self->{headers_to_add}->{'X-Pyzor'} = "Reported $pyzor_count times.";
+    }
+  }
+
+  if ($pyzor_count >= $self->{conf}->{pyzor_max}) {
+    dbg ("Pyzor: Listed! $pyzor_count of $self->{conf}->{pyzor_max} and whitelist is $pyzor_whitelisted");
+    timelog("Pyzor -> got hit", "pyzor", 2);
+    return 1;
+  }
+  
+  timelog("Pyzor -> no match", "pyzor", 2);
+  return 0;
+}
+
 
 ###########################################################################
 
@@ -561,8 +768,8 @@ sub lookup_mx {
     $ret = 1 if @mxrecords;
   };
   if ($@) {
-    # 71 == EX_OSERR.  MX lookups are not supposed to crash and burn!
-    sa_die (71, "MX lookup died: $@ $!\n");
+    dbg ("MX lookup failed horribly, perhaps bad resolv.conf setting?");
+    return undef;
   }
 
   dbg ("MX for '$dom' exists? $ret");
@@ -593,8 +800,8 @@ sub lookup_ptr {
 
   };
   if ($@) {
-    # 71 == EX_OSERR.  PTR lookups are not supposed to crash and burn!
-    sa_die (71, "PTR lookup died: $@ $!\n");
+    dbg ("PTR lookup failed horribly, perhaps bad resolv.conf setting?");
+    return undef;
   }
 
   dbg ("PTR for '$dom': '$name'");
@@ -639,10 +846,18 @@ sub is_dns_available {
   for(my $retry = 3; $retry > 0 and $#domains>-1; $retry--) {
     my $domain = splice(@domains, rand(@domains), 1);
     dbg ("trying ($retry) $domain...", "dnsavailable", -2);
-    if($self->lookup_mx($domain)) {
-      dbg ("MX lookup of $domain succeeded => Dns available (set dns_available to hardcode)", "dnsavailable", -1);
-      $IS_DNS_AVAILABLE = 1;
-      last;
+    my $result = $self->lookup_mx($domain);
+    if(defined $result) {
+      if ( $result ) {
+        dbg ("MX lookup of $domain succeeded => Dns available (set dns_available to hardcode)", "dnsavailable", -1);
+        $IS_DNS_AVAILABLE = 1;
+        last;
+      }
+    }
+    else {
+      dbg ("MX lookup of $domain failed horribly => Perhaps your resolv.conf isn't pointing at a valid server?", "dnsavailable", -1);
+      $IS_DNS_AVAILABLE = 0; # should already be 0, but let's be sure.
+      last; 
     }
   }
 
@@ -652,6 +867,41 @@ done:
   # jm: leaving this in!
   dbg ("is DNS available? $IS_DNS_AVAILABLE");
   return $IS_DNS_AVAILABLE;
+}
+
+###########################################################################
+
+sub enter_helper_run_mode {
+  my ($self) = @_;
+
+  dbg ("entering helper-app run mode");
+  $self->{old_slash} = $/;              # Razor pollutes this
+  $self->{old_env_home} = $ENV{'HOME'}; # can be 'undef', e.g. spamd has no HOME
+
+  Mail::SpamAssassin::Util::clean_path_in_taint_mode();
+
+  my $newhome;
+  if ($self->{main}->{home_dir_for_helpers}) {
+    $newhome = $self->{main}->{home_dir_for_helpers};
+  } else {
+    $newhome = (getpwuid($>))[7];	# use spamd -u user's home dir
+  }
+
+  if ($newhome) {
+    $ENV{'HOME'} = Mail::SpamAssassin::Util::untaint_file_path ($newhome);
+  }
+}
+
+sub leave_helper_run_mode {
+  my ($self) = @_;
+
+  dbg ("leaving helper-app run mode");
+  $/ = $self->{old_slash};
+  if (defined $self->{old_env_home}) {
+    $ENV{'HOME'} = $self->{old_env_home};
+  } else {
+    delete $ENV{'HOME'};        # make sure it's unset
+  }
 }
 
 ###########################################################################

@@ -2,7 +2,10 @@
 
 use lib '.'; use lib 't';
 use SATest; sa_t_init("spam");
-use Test; BEGIN { plan tests => 2 };
+
+use constant TEST_ENABLED => (-e 't/do_razor' || -e 'do_razor');
+use Test; BEGIN { plan tests => TEST_ENABLED ? 2 : 0 };
+exit unless TEST_ENABLED;
 
 # ---------------------------------------------------------------------------
 
@@ -13,14 +16,13 @@ eval {
 };
 
 if ($@) {
-	$razor_not_available = "Razor is not installed.";
+	$razor_not_available = "Razor1 is not installed.";
 }
-
 
 
 %patterns = (
 
-q{ Listed in Razor }, 'spam',
+q{ Listed in Razor v1 }, 'spam',
 
 );
 
@@ -30,7 +32,7 @@ skip_all_patterns($razor_not_available);
 %patterns = ();
 %anti_patterns = (
 
-q{ Listed in Razor }, 'nonspam',
+q{ Listed in Razor v1 }, 'nonspam',
 
 );
 

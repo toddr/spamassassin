@@ -1,0 +1,34 @@
+# SpamAssassin rules file: broken rules
+#
+# This file isn't installed with SpamAssassin. Rules which appear broken
+# but might be worth another try are moved onto this pile. Normally every
+# line in this file should be commented out.
+#
+###########################################################################
+#
+## these rules may need to factor in ok_languages or ok_locales
+## Dec 18 2002 jm: but how? ;)  They are ready to be promoted otherwise
+##freqs:  0.084   0.2047   0.0095    0.956   0.84    0.01  T_BODY_UNPRINTABLE
+#body T_BODY_UNPRINTABLE		/[\x00-\x07\x0b\x0c\x0e-\x1f\x7f]{3,}/
+#describe T_BODY_UNPRINTABLE	Body includes 3 consecutive unprintable characters
+#
+## Nov 12 2002 jm: not keen on this.  many ISPs do not provide rDNS these
+## days as policy. stupid policy, but there we are. and SpamAssassin policy
+## is not to punish users with stupid ISPs...
+##
+## Dec 20 2002 jm: should make fantastic meta-fodder though. ;)
+##
+##freqs: 11.817  22.1680   5.3554    0.805   0.53    0.01  T_SENDER_NO_REVERSE
+#header   T_SENDER_NO_REVERSE    eval:check_for_sender_no_reverse()
+#describe T_SENDER_NO_REVERSE    No reverse lookup for sender's IP
+
+# bug 1310: these four rules are pretty slow and not that great
+# they need to work better  before being added back into SA proper
+#body SALE			/\bsales? (?:price|system|department|technology|ends|today)|\b(?:on|summer|movie|clearance|for|your|increase|super|losing|return|business|airfare) (?-i:S)ales?/i
+#describe SALE			Stuff on Sale
+#body WINNER			/\byou.{0,4} a winner|\bregister to win/i
+#describe WINNER		Claims you are a winner
+#body MONTH_TRIAL		/(?:month|day) .{0,9}trial/i
+#describe MONTH_TRIAL		Month Trial Offer
+#body MEMBER_2			/\b(?:free|special|paid|dear|gold|opt.in|valued|because you are an?|be a|becoming a|sent to) .{0,9}members?\b/i
+#describe MEMBER_2		Being a Member
