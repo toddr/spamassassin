@@ -1,29 +1,24 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 
 use lib '.'; use lib 't';
 use SATest; sa_t_init("spam");
-use Test; BEGIN { plan tests => 27 };
+use Test; BEGIN { plan tests => 9 };
 
 # ---------------------------------------------------------------------------
 
 %patterns = (
 
-q{ Subject: *****SPAM***** There yours for FREE!}, 'subj',
+q{ Subject: There yours for FREE!}, 'subj',
 q{ X-Spam-Status: Yes, hits=}, 'status',
 q{ X-Spam-Flag: YES}, 'flag',
-q{ To "Undisclosed.Recipients" or similar}, 'undisc',
-q{ Invalid Date: header}, 'date',
-q{ Subject has an exclamation mark}, 'apling',
-q{ From: ends in numbers}, 'endsinnums',
-q{ From: does not include a real name}, 'noreal',
-q{ Message-Id has no @ sign}, 'noat',
-q{ BODY: /reply.*remove.*subject/i}, 'replyremovesubject',
-q{ BODY: /To Be Removed,? Please/i}, 'toberemoved',
-q{ BODY: /remove.*subject/i}, 'removesubj',
-q{ BODY: /\"remove\"/i}, 'remove',
+q{ X-Spam-Level: **********}, 'stars',
+q{ FROM_ENDS_IN_NUMS }, 'endsinnums',
+q{ NO_REAL_NAME }, 'noreal',
+q{ REMOVE_SUBJ }, 'removesubject',
+q{ REMOVE_IN_QUOTES }, 'remove',
 
 
 );
 
-ok (sarun ("-t < data/spam/001", \&patterns_run_cb));
+ok (sarun ("-L -t < data/spam/001", \&patterns_run_cb));
 ok_all_patterns();

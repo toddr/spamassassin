@@ -1,0 +1,8 @@
+spamd
+spamc
+sslspamc
+libspamc.so
+binaries.mk
+config.h
+config.log
+config.status

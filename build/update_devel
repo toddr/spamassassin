@@ -1,30 +1,44 @@
 #!/bin/bash
 
-WEBDIR=/home/jm/spamassassin.taint.org
+WEBDIR=$HOME/spamassassin.taint.org
 
-vers=`build/get_version`
+vers=`build/get_version`				# 2.60-rc3
+minivers=`echo $vers | sed -e 's/-[a-z0-9A-Z]*$//'`	# 2.60
 
 # delete old CVS files
 find . -name '.#*' -print | xargs rm -f
 
-make clean ; perl Makefile.PL ; make
-
+make clean ; perl Makefile.PL < /dev/null
+make; make; make                # third time lucky!
 make text_html_doc
-
 make distcheck
-
-echo "Creating 'Changes' file from CVS change log..."
-cvs2cl.pl -f Changes
-
-rm -f Mail-SpamAssassin-$vers.tar.gz Mail-SpamAssassin-$vers.zip
-make tardist
-cp Mail-SpamAssassin-$vers.tar.gz $WEBDIR/devel
-
-make zipdist
-cp Mail-SpamAssassin-$vers.zip $WEBDIR/devel
 
 echo $vers > $WEBDIR/latest_version
 
-( cd $WEBDIR/devel ; cvs add -kb *SpamAssassin* )
+rm -f Mail-SpamAssassin-$vers.tar.bz2 Mail-SpamAssassin-$vers.tar.gz Mail-SpamAssassin-$vers.zip
+make tardist
+make zipdist
+gzip -dc Mail-SpamAssassin-$minivers.tar.gz | bzip2 -9c - > Mail-SpamAssassin-$minivers.tar.bz2
+
+for ext in tar.bz2 tar.gz zip ; do
+  if [ $minivers != $vers ] ; then
+    mv Mail-SpamAssassin-$minivers.$ext Mail-SpamAssassin-$vers.$ext
+  fi
+
+  cp Mail-SpamAssassin-$vers.$ext $WEBDIR/devel
+
+  md5sum Mail-SpamAssassin-$vers.$ext \
+	  > $WEBDIR/devel/Mail-SpamAssassin-$vers.$ext.md5
+
+  sha1sum Mail-SpamAssassin-$vers.$ext \
+	  > $WEBDIR/devel/Mail-SpamAssassin-$vers.$ext.sha1
+
+  gpgsign=$HOME/bin/gpgsign
+  rm -f Mail-SpamAssassin-$vers.$ext.asc
+  $gpgsign Mail-SpamAssassin-$vers.$ext
+  mv Mail-SpamAssassin-$vers.$ext.asc $WEBDIR/devel/Mail-SpamAssassin-$vers.$ext.asc
+done
+
+# ( cd $WEBDIR/devel && cvs add -kb *SpamAssassin* )
 
 ls -l $WEBDIR/devel

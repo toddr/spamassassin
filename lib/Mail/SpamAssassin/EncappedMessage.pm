@@ -4,47 +4,69 @@
 
 package Mail::SpamAssassin::EncappedMessage;
 
-use Carp;
 use strict;
+use bytes;
+use Carp;
 
-use Mail::Audit;
 
-use vars	qw{
-  	@ISA
+use Mail::SpamAssassin::AuditMessage;
+
+use vars qw{
+  @ISA
 };
 
-@ISA = qw(Mail::SpamAssassin::Message);
-
-###########################################################################
-
-sub new {
-  my $class = shift;
-  $class = ref($class) || $class;
-  my $self = $class->SUPER::new (@_);
-  bless ($self, $class);
-  $self;
-}
+@ISA = qw(Mail::SpamAssassin::AuditMessage);
 
 ###########################################################################
 
 sub replace_header {
   my ($self, $hdr, $text) = @_;
-  $self->{audit}->replace_header ($hdr, $text);
+  $self->{mail_object}->replace_header ($hdr, $text);
 }
 
-sub delete_header {
+sub get_pristine_header {
   my ($self, $hdr) = @_;
-  $self->{audit}->delete_header ($hdr);
+  return $self->get_header ($hdr);
+}
+
+sub get_header {
+  my ($self, $hdr) = @_;
+
+  # Jul  1 2002 jm: needed to support 2.1 and later Mail::Audits, which
+  # modified the semantics of get() for no apparent reason (argh).
+
+  if ($Mail::Audit::VERSION > 2.0) {
+    return $self->{mail_object}->head->get ($hdr);
+  } else {
+    return $self->{mail_object}->get ($hdr);
+  }
 }
 
 sub get_body {
   my ($self) = @_;
-  $self->{audit}->body();
+  $self->{mail_object}->body();
 }
 
 sub replace_body {
   my ($self, $aryref) = @_;
-  $self->{audit}->body ($aryref);
+
+  # Jul  1 2002 jm: use MIME::Body to support newer versions of
+  # Mail::Audit. protect against earlier versions that don't have is_mime()
+  # method, and load the MIME::Body class using a string eval so SA
+  # doesn't itself have to require the MIMETools classes.
+  #
+  if (eval { $self->{mail_object}->is_mime(); }) {
+    my $newbody;
+    # please leave the eval and use on the same line.  kluge around a bug in RPM 4.1.
+    # tvd - 2003.02.25
+    eval 'use MIME::Body;
+      my $newbody = new MIME::Body::InCore ($aryref);
+    ';
+    die "MIME::Body::InCore ctor failed" unless defined ($newbody);
+    return $self->{mail_object}->bodyhandle ($newbody);
+  }
+
+  return $self->{mail_object}->body ($aryref);
 }
 
 1;

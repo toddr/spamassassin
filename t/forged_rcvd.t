@@ -1,17 +1,17 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 
 use lib '.'; use lib 't';
-use SATest; sa_t_init("spam");
-use Test; BEGIN { plan tests => 3 };
+use SATest; sa_t_init("forged_rcvd");
+use Test; BEGIN { plan tests => 2 };
 
 # ---------------------------------------------------------------------------
 
 %patterns = (
 
-# q{ Forged 'Received:' header found }, 'rcvdspotted',
-q{ BODY: /To Be Removed,? Please/i }, 'bodyspotted',
+q{ INVALID_DATE }, 'invdate',
+q{ VACATION_SCAM }, 'bodyspotted',
 
 );
 
-ok (sarun ("-t < data/spam/002", \&patterns_run_cb));
+sarun ("-L -t < data/spam/002", \&patterns_run_cb);
 ok_all_patterns();
