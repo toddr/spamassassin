@@ -1,10 +1,13 @@
 package Mail::SpamAssassin::Locales;
 
 use strict;
-use vars	qw{ %charsets_for_locale };
+use bytes;
+
+use vars qw{
+  %charsets_for_locale
+};
 
 ###########################################################################
-
 
 # A mapping of known country codes to frequent charsets used therein.
 # note that the ISO and CP charsets will already have been permitted,
@@ -62,7 +65,7 @@ sub is_charset_ok_for_locales {
     $locale =~ s/^([a-z][a-z]).*$/$1/;	# zh_TW... => zh
 
     my $ok_for_loc = $charsets_for_locale{$locale};
-    return 0 if (!defined $ok_for_loc);
+    next if (!defined $ok_for_loc);
 
     if ($ok_for_loc =~ /(?:^| )\Q${cs}\E(?:$| )/) {
       return 1;

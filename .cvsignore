@@ -1,4 +1,6 @@
 Changes.bak
+do_razor
+do_razor2
 wordfreqs
 pm_to_blib
 distbin
@@ -7,7 +9,6 @@ Makefile.old
 blib
 cron.log
 SpamAssassin.spec
-getlwp.tmp
 site_perl
 testmails
 Mail-SpamAssassin-*
@@ -16,3 +17,19 @@ doc
 spamassassin
 masses/logs
 spamd/spamc
+spamd/libspamc.so
+build-arch-stamp
+build-indep-stamp
+configure-stamp
+binaries.mk
+config.cache
+config.h
+config.log
+config.status
+made-doc-stamp
+sa-learn-nonspam
+sa-forget
+sa-learn-spam
+sa-learn-rebuild
+qmail/qmail-spamc
+masses/spamassassin
