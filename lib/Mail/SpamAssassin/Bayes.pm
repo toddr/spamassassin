@@ -108,7 +108,11 @@ $IGNORED_HDRS = qr{(?: (?:X-)?Sender    # misc noise
 
   # Annotations from VM: (thanks to Allen Smith)
   |X-VM-(?:Bookmark|(?:POP|IMAP)-Retrieved|Labels|Last-Modified
-    |Summary-Format|VHeader|v\d-Data|Message-Order)
+  |Summary-Format|VHeader|v\d-Data|Message-Order)
+
+  # Annotations from Gnus
+  | X-Gnus-Mail-Source
+  | Xref
 
 )}x;
 
@@ -655,7 +659,7 @@ sub learn_trapped {
   if (defined ($seen)) {
     if (($seen eq 's' && $isspam) || ($seen eq 'h' && !$isspam)) {
       dbg ("$msgid: already learnt correctly, not learning twice");
-      return;
+      return 0;
     } elsif ($seen !~ /^[hs]$/) {
       warn ("db_seen corrupt: value='$seen' for $msgid. ignored");
     } else {

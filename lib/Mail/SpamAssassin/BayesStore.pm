@@ -121,23 +121,23 @@ sub read_db_configs {
 
 sub tie_db_readonly {
   my ($self) = @_;
-  my $main = $self->{bayes}->{main};
 
-  # return if we've already tied to the db's, using the same mode
-  # (locked/unlocked) as before.
-  return 1 if ($self->{already_tied} && $self->{is_locked} == 0);
-  $self->{already_tied} = 1;
-
-  $self->read_db_configs();
-
-  if (!defined($main->{conf}->{bayes_path})) {
-    dbg ("bayes_path not defined");
-    return 0;
-  }
   if (!HAS_DB_FILE) {
     dbg ("bayes: DB_File module not installed, cannot use Bayes");
     return 0;
   }
+
+  # return if we've already tied to the db's, using the same mode
+  # (locked/unlocked) as before.
+  return 1 if ($self->{already_tied} && $self->{is_locked} == 0);
+
+  my $main = $self->{bayes}->{main};
+  if (!defined($main->{conf}->{bayes_path})) {
+    dbg ("bayes_path not defined");
+    return 0;
+  }
+
+  $self->read_db_configs();
 
   my $path = $main->sed_path ($main->{conf}->{bayes_path});
 
@@ -172,6 +172,8 @@ sub tie_db_readonly {
   if ( $self->{db_version} < 2 ) { # older versions use scancount
     $self->{scan_count_little_file} = $path.'_msgcount';
   }
+
+  $self->{already_tied} = 1;
   return 1;
 
 failed_to_tie:
@@ -184,23 +186,23 @@ failed_to_tie:
 #
 sub tie_db_writable {
   my ($self) = @_;
-  my $main = $self->{bayes}->{main};
 
-  # return if we've already tied to the db's, using the same mode
-  # (locked/unlocked) as before.
-  return 1 if ($self->{already_tied} && $self->{is_locked} == 1);
-  $self->{already_tied} = 1;
-
-  $self->read_db_configs();
-
-  if (!defined($main->{conf}->{bayes_path})) {
-    dbg ("bayes_path not defined");
-    return 0;
-  }
   if (!HAS_DB_FILE) {
     dbg ("bayes: DB_File module not installed, cannot use Bayes");
     return 0;
   }
+
+  # return if we've already tied to the db's, using the same mode
+  # (locked/unlocked) as before.
+  return 1 if ($self->{already_tied} && $self->{is_locked} == 1);
+
+  my $main = $self->{bayes}->{main};
+  if (!defined($main->{conf}->{bayes_path})) {
+    dbg ("bayes_path not defined");
+    return 0;
+  }
+
+  $self->read_db_configs();
 
   my $path = $main->sed_path ($main->{conf}->{bayes_path});
 
@@ -258,6 +260,7 @@ sub tie_db_writable {
     dbg("bayes: new db, set db version ".$self->{db_version}." and 0 tokens");
   }
 
+  $self->{already_tied} = 1;
   return 1;
 
 failed_to_tie:
@@ -365,10 +368,11 @@ sub upgrade_db {
     my $magic_re = $self->get_magic_re($self->{db_version});
 
     # deal with the data tokens
-    foreach my $tok (keys %{$self->{db_toks}}) {
+    my ($tok, $packed);
+    while (($tok, $packed) = each %{$self->{db_toks}}) {
       next if ($tok =~ /$magic_re/); # skip magic tokens
 
-      my ($ts, $th, $atime) = $self->tok_get ($tok);
+      my ($ts, $th, $atime) = $self->tok_unpack ($packed);
       $new_toks{$tok} = $self->tok_pack ($ts, $th, $newatime);
     }
 
@@ -495,7 +499,11 @@ sub expire_old_tokens_trapped {
   # a new one instead.
   my $main = $self->{bayes}->{main};
   my $path = $main->sed_path ($main->{conf}->{bayes_path});
-  my $name = $path.'_toks.new';
+
+  # use a temporary PID-based suffix just in case another one was
+  # created previously by an interrupted expire
+  my $tmpsuffix = "expire$$";
+  my $tmpdbname = $path.'_toks.'.$tmpsuffix;
 
   my $magic_re = $self->get_magic_re(DB_VERSION);
 
@@ -554,16 +562,17 @@ sub expire_old_tokens_trapped {
   #   if the two values are out of balance, estimating atime is going to be funky, recompute
   #
   if ( (time() - $magic[4] > 86400*30) || ($magic[8] < 43200) || ($magic[9] < 1000) || ($newdelta < 43200) || ($ratio > 1.5) ) {
-    dbg("bayes: something fishy, calculating atime (first pass)");
+    dbg("bayes: Can't use estimation method for expiry, something fishy, calculating optimal atime delta (first pass)");
     my $start = 43200; # exponential search starting at ...?  1/2 day, 1, 2, 4, 8, 16, ...
     my %delta = (); # use a hash since an array is going to be very sparse
     my $max_expire_mult = 512; # $max_expire_mult * $start = max expire time (256 days), power of 2.
 
     # do the first pass, figure out atime delta
-    foreach my $tok (keys %{$self->{db_toks}}) {
+    my ($tok, $packed);
+    while (($tok, $packed) = each %{$self->{db_toks}}) {
       next if ($tok =~ /$magic_re/); # skip magic tokens
 
-      my ($ts, $th, $atime) = $self->tok_get ($tok);
+      my ($ts, $th, $atime) = $self->tok_unpack ($packed);
 
       # Go through from $start * 1 to $start * 512, mark how many tokens we would expire
       my $token_age = $magic[10] - $atime;
@@ -577,6 +586,12 @@ sub expire_old_tokens_trapped {
 	  last;
 	}
       }
+    }
+
+    dbg("bayes: atime\ttoken reduction");
+    dbg("bayes: ========\t===============");
+    for( my $i = 1; $i<=$max_expire_mult; $i<<=1 ) {
+	dbg("bayes: ".$start*$i."\t".(exists $delta{$i} ? $delta{$i} : 0));
     }
 
     # Now figure out which max_expire_mult value gives the closest results to goal_reduction, without
@@ -609,16 +624,20 @@ sub expire_old_tokens_trapped {
     }
 
     $newdelta = $start * $max_expire_mult;
+    dbg("bayes: First pass decided on $newdelta for atime delta");
   }
   else { # use the estimation method
     dbg("bayes: Can do estimation method for expiry, skipping first pass.");
   }
 
+  # clean out any leftover db copies from previous runs
+  for my $ext (@DB_EXTENSIONS) { unlink ($tmpdbname.$ext); }
+
   # use O_EXCL to avoid races (bonus paranoia, since we should be locked
   # anyway)
   my %new_toks;
   my $umask = umask 0;
-  tie %new_toks, "DB_File", $name, O_RDWR|O_CREAT|O_EXCL,
+  tie %new_toks, "DB_File", $tmpdbname, O_RDWR|O_CREAT|O_EXCL,
 	       (oct ($main->{conf}->{bayes_file_mode}) & 0666);
   umask $umask;
   my $oldest;
@@ -633,10 +652,11 @@ sub expire_old_tokens_trapped {
   $too_old = $magic[10] - $newdelta; # tooold = newest - delta
 
   # Go ahead and do the move to new db/expire run now ...
-  foreach my $tok (keys %{$self->{db_toks}}) {
+  my ($tok, $packed);
+  while (($tok, $packed) = each %{$self->{db_toks}}) {
     next if ($tok =~ /$magic_re/); # skip magic tokens
 
-    my ($ts, $th, $atime) = $self->tok_get ($tok);
+    my ($ts, $th, $atime) = $self->tok_unpack ($packed);
 
     if ($atime < $too_old) {
       $deleted++;
@@ -685,7 +705,7 @@ sub expire_old_tokens_trapped {
 
     # now rename in the new one.  Try several extensions
     for my $ext (@DB_EXTENSIONS) {
-      my $newf = $path.'_toks.new'.$ext;
+      my $newf = $tmpdbname.$ext;
       my $oldf = $path.'_toks'.$ext;
       next unless (-f $newf);
       if (!rename ($newf, $oldf)) {
@@ -1241,8 +1261,10 @@ sub tok_put {
       $self->{db_toks}->{$NEWEST_TOKEN_AGE_MAGIC_TOKEN} = $atime;
     }
 
+    # Make sure to check for either !defined or "" ...  Apparently
+    # sometimes the DB module doesn't return the value correctly. :(
     my $oldmagic = $self->{db_toks}->{$OLDEST_TOKEN_AGE_MAGIC_TOKEN};
-    if (!defined ($oldmagic) || $atime < $oldmagic) {
+    if (!defined ($oldmagic) || $oldmagic eq "" || $atime < $oldmagic) {
       $self->{db_toks}->{$OLDEST_TOKEN_AGE_MAGIC_TOKEN} = $atime;
     }
   }

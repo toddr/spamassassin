@@ -280,6 +280,9 @@ sub learn {
     return;
   }
 
+  my $learner_said_ham_hits = -1.0;
+  my $learner_said_spam_hits = 1.0;
+
   if ($isspam) {
     my $required_body_hits = 3;
     my $required_head_hits = 3;
@@ -292,6 +295,18 @@ sub learn {
     if ($self->{head_only_hits} < $required_head_hits) {
       dbg ("auto-learn? no: too few head hits (".
 		  $self->{head_only_hits}." < ".$required_head_hits.")");
+      return;
+    }
+    if ($self->{learned_hits} < $learner_said_ham_hits) {
+      dbg ("auto-learn? no: learner indicated ham (".
+		  $self->{learned_hits}." < ".$learner_said_ham_hits.")");
+      return;
+    }
+
+  } else {
+    if ($self->{learned_hits} > $learner_said_spam_hits) {
+      dbg ("auto-learn? no: learner indicated spam (".
+		  $self->{learned_hits}." > ".$learner_said_spam_hits.")");
       return;
     }
   }
@@ -606,11 +621,16 @@ sub rewrite_as_spam {
       next if ( exists $already_added{lc $hdr} );
       my @hdrtext = $self->{msg}->get_pristine_header($hdr);
       $already_added{lc $hdr}++;
-      foreach ( @hdrtext ) {
-	if ( lc $hdr eq "received" ) { # add Received at the top ...
-          $newmsg = "$hdr: $_$newmsg";
-	}
-	else { # if not Received, add at the bottom ...
+
+      if ( lc $hdr eq "received" ) { # add Received at the top ...
+	  my $rhdr = "";
+	  foreach (@hdrtext) {
+            $rhdr .= "$hdr: $_";
+	  }
+	  $newmsg = "$rhdr$newmsg";
+      }
+      else {
+        foreach ( @hdrtext ) {
           $newmsg .= "$hdr: $_";
 	}
       }
@@ -620,7 +640,7 @@ sub rewrite_as_spam {
   # jm: add a SpamAssassin Received header to note markup time etc.
   # emulates the fetchmail style.
   # tvd: do this after report_safe_copy_headers so Received will be done correctly
-  $newmsg = "Received: from localhost [127.0.0.1] by " .
+  $newmsg = "Received: from localhost by " .
 	    Mail::SpamAssassin::Util::fq_hostname() . "\n" .
 	"\twith SpamAssassin (" . Mail::SpamAssassin::Version() . " " .
 	    $Mail::SpamAssassin::SUB_VERSION . ");\n" .
@@ -1301,6 +1321,7 @@ sub get {
       $_ = join ("\n", grep { defined($_) && length($_) > 0 }
 		$self->{msg}->get_header ('X-Message-Id'),
 		$self->{msg}->get_header ('Resent-Message-Id'),
+		$self->{msg}->get_header ('X-Original-Message-ID'), # bug 2122
 		$self->{msg}->get_header ('Message-Id'));
     }
     # a conventional header
