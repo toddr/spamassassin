@@ -1,45 +1,108 @@
 #!/usr/bin/perl -w
 
-%skipped_scores = ();
-open (IN, "<freqs");
-while (<IN>) {
-  next if /^\s+OVERALL\s/;
-  @s = split;
-  if ($s[0] < 0) { $skipped_scores{$s[3]} = 1; }
-}
-close IN;
+my $NUM_SCORESETS = 4;
 
-my $gascores = '';
-while (<>) {
-  /^score\s+(\S+)\s/ or next;
-  next if (defined $skipped_scores{$1});
-  next if ($1 eq '(null)');	# er, oops ;)
+my ($scoreset,$oldscores,$newscores) = @ARGV;
 
-  $gascores .= $_;
+$scoreset = int($scoreset) if defined $scoreset;
+if (!defined $newscores || $scoreset < 0 || $scoreset >= $NUM_SCORESETS ) {
+  die "usage: rewrite-cf-with-new-scores scoreset oldscores.cf newscores.cf\n";
 }
 
-open (IN, "<../spamassassin.cf");
+system ("./parse-rules-for-masses") and die;
+require "./tmp/rules.pl";
+
+# now read the evolved scores
+my @gascoreorder = ();
+my %gascorelines = ();
+open (STDIN, "<$newscores") or die "cannot open $newscores";
+while (<STDIN>) {
+  /^score\s+(\S+)\s+(-?\d+(?:\.\d+)?)/ or next;
+  my $name = $1;  my $score = $2;
+  next unless (exists ($rules{$name}) && $rules{$name}->{issubrule} == 0);
+  next if ($name =~ /^__/);
+  next if ($name eq '(null)');	# er, oops ;)
+
+  $gascorelines{$name} = $score;
+  push (@gascoreorder, $name);
+}
+
+open (IN, "<$oldscores") or die "cannot open $oldscores";
 my $out = '';
 my $pre = '';
+
+# read until '# Start of GA-evolved scores', removing scores from our
+# new list if we come across them.
 while (<IN>) {
   if (/^\s*score\s+(\S+)\s/) {
-    $gascores =~ s/^score\s+$1\s.*?\n//gm;
+    delete $gascorelines{$1};
+    next unless (exists ($rules{$name}) && $rules{$name}->{issubrule} == 0);
   }
   $pre .= $_;
   /^# Start of GA-evolved scores/ and last;
 }
 
+# now skip until '# End of GA-evolved scores'
 while (<IN>) {
+  if (/^\s*score\s+\S+/) {
+    my($score,$name,@scores) = split;
+    @{$oldscores{$name}} = @scores;
+  }
+
   /^# End of GA-evolved scores/ and last;
 }
-$out .= $_;
+if (defined $_) {
+  $out .= $_;
+}
 
+# and read until EOF, again removing scores from our list as we find 'em.
 while (<IN>) {
-  if (/^\s*score\s+(\S+)\s/) {
-    $gascores =~ s/^score\s+$1\s.*?\n//gm;
+  if (/^\s*score\s+\S+/) {
+    my($score,$name,@scores) = split;
+
+    next unless (exists ($rules{$name}) && $rules{$name}->{issubrule} == 0);
+    if (defined $gascorelines{$name}) {
+      # Set appropriate scoreset value
+      $scores[$scoreset] = $gascorelines{$name};
+
+      # Create new score line
+      $_ = join(" ","score",$name,generate_scores(@scores))."\n";
+    }
+    delete $gascorelines{$name};
   }
   $out .= $_;
 }
 close IN;
 
-print $pre, "\n", $gascores, "\n", $out;
+# and output the lot
+print $pre, "\n";
+foreach my $name (@gascoreorder) {
+  $_ = $gascorelines{$name};
+  next unless (defined ($_));
+
+  # Use the old scores if they existed
+  my @scores = ();
+  @scores = @{$oldscores{$name}} if ( exists $oldscores{$name} );
+
+  # Set appropriate scoreset value
+  $scores[$scoreset] = $_;
+
+  # Create new score line
+  print join(" ","score",$name,generate_scores(@scores)),"\n";
+}
+print "\n", $out, "\n";
+
+sub generate_scores {
+  my (@scores) = @_;
+
+  # Set defaults if not already set
+  $scores[0] ||= 0;
+  my $flag = 1;
+  for(my $i=1;$i<$NUM_SCORESETS;$i++) {
+    $scores[$i] = $scores[0] unless defined $scores[$i];
+    $flag = 0 if ( $scores[$i] != $scores[$i-1] );
+  };
+  splice @scores, 1 if $flag;
+
+  return @scores;
+}
