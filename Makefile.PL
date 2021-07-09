@@ -185,6 +185,7 @@ my %makefile = (
         'Net::DNS'             => (RUNNING_ON_WINDOWS ? 0.46 : 0.34), # bugs in older revs
         'NetAddr::IP'          => 4.010,
         'Sys::Hostname'        => 0,
+        'Test::More'           => 0,
         'Time::HiRes'          => 0,
         'Time::Local'          => 0,
         'Errno'                => 0,
@@ -379,17 +380,13 @@ print "Makefile written by ExtUtils::MakeMaker $mm_version\n";
 
 package MY;
 
-use vars qw(
-  $MY_GLOBALS_ARE_SANE
-  $RUNNING_ON_WINDOWS
-  @REPOSITORIES
-
-  $MACRO_RE
-  $EQ_RE
-  $EQ
-
-  $SELF
-);
+our ($MY_GLOBALS_ARE_SANE,
+  $RUNNING_ON_WINDOWS,
+  @REPOSITORIES,
+  $MACRO_RE,
+  $EQ_RE,
+  $EQ,
+  $SELF);
 
 # For some reason initializing the vars on the global scope doesn't work;
 # guess its some weird Perl behaviour in combination with bless().
